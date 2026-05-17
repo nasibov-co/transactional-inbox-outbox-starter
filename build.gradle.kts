@@ -47,11 +47,11 @@ tasks.withType<Test> {
 
 
 mavenPublishing {
-	publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL) // Или S01 для старого
+	publishToMavenCentral()
 
 	signAllPublications()
 
-	coordinates(group, "transactional-inbox-outbox-starter-r2dbc", version)
+	coordinates(project.group.toString(), "transactional-inbox-outbox-starter-r2dbc", project.version.toString())
 
 	pom {
 		name.set("Transactional Inbox Outbox Starter")
