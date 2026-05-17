@@ -49,7 +49,7 @@ mavenPublishing {
 
 	signAllPublications()
 
-	coordinates(project.group.toString(), "transactional-inbox-outbox-starter-r2dbc", project.version.toString())
+	coordinates("io.github.fnasibov", "transactional-inbox-outbox-starter-r2dbc", project.version.toString())
 
 	pom {
 		name.set("Transactional Inbox Outbox Starter")
