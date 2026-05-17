@@ -63,20 +63,14 @@ publishing {
 			url = uri("https://central.sonatype.com/api/v1/publisher/deployments")
 
 			credentials {
-				username = System.getenv("CENTRAL_USERNAME")
-				password = System.getenv("CENTRAL_PASSWORD")
+				username = project.findProperty("centralUsername") as String?
+				password = project.findProperty("centralPassword") as String?
 			}
 		}
 	}
 }
 
 signing {
-	val keyId = System.getenv("GPG_KEY_ID")
-	val key = System.getenv("GPG_PRIVATE_KEY")
-	val password = System.getenv("GPG_PASSWORD")
-
-	if (key != null && password != null) {
-		useInMemoryPgpKeys(keyId, key, password)
-		sign(publishing.publications["mavenJava"])
-	}
+	useGpgCmd()
+	sign(publishing.publications["mavenJava"])
 }
