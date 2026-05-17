@@ -3,8 +3,6 @@ plugins {
 	kotlin("plugin.spring") version "2.2.21"
 	`java-library`
 	`maven-publish`
-	id("signing")
-
 }
 
 group = "com.fnasibov"
@@ -59,24 +57,13 @@ publishing {
 	}
 	repositories {
 		maven {
-			name = "central"
-			url = uri("https://central.sonatype.com/api/v1/publisher/deployments")
+			name = "OSSRH"
+			url = uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 
 			credentials {
-				username = project.findProperty("centralUsername") as String?
-				password = project.findProperty("centralPassword") as String?
+				username = System.getenv("MAVEN_USERNAME")
+				password = System.getenv("MAVEN_PASSWORD")
 			}
 		}
-	}
-}
-
-signing {
-	val signingKey = findProperty("signingInMemoryKey") as String?
-	val signingPassword = findProperty("signingInMemoryKeyPassword") as String?
-	val signingKeyId = findProperty("signingKeyId") as String?
-
-	if (signingKey != null && signingPassword != null) {
-		useInMemoryPgpKeys(signingKeyId, signingKey, signingPassword)
-		sign(publishing.publications["mavenJava"])
 	}
 }
