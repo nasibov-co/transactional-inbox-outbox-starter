@@ -71,6 +71,12 @@ publishing {
 }
 
 signing {
-	useGpgCmd()
-	sign(publishing.publications["mavenJava"])
+	val signingKey = findProperty("signingInMemoryKey") as String?
+	val signingPassword = findProperty("signingInMemoryKeyPassword") as String?
+	val signingKeyId = findProperty("signingKeyId") as String?
+
+	if (signingKey != null && signingPassword != null) {
+		useInMemoryPgpKeys(signingKeyId, signingKey, signingPassword)
+		sign(publishing.publications["mavenJava"])
+	}
 }

@@ -17,23 +17,17 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
           cache: gradle
 
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Import GPG key
-        run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 --decode | gpg --batch --import
-          gpg --list-secret-keys --keyid-format LONG
-
-      - name: Trust GPG key
-        run: |
-          echo "${{ secrets.GPG_KEY_ID }}:6:" | gpg --import-ownertrust
-
       - name: Build and publish
         env:
-          ORG_GRADLE_PROJECT_centralUsername: ${{ secrets.CENTRAL_USERNAME }}
-          ORG_GRADLE_PROJECT_centralPassword: ${{ secrets.CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingKeyId: ${{ secrets.GPG_KEY_ID }}
         run: ./gradlew clean publish
