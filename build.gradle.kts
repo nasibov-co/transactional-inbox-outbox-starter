@@ -9,8 +9,6 @@ group = "com.fnasibov"
 version = "0.0.1"
 
 java {
-	withSourcesJar()
-	withJavadocJar()
 	toolchain {
 		languageVersion = JavaLanguageVersion.of(21)
 	}
