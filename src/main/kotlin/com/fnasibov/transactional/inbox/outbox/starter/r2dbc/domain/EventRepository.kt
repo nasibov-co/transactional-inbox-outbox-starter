@@ -1,6 +1,7 @@
 package com.fnasibov.transactional.inbox.outbox.starter.r2dbc.domain
 
 import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.Event
+import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.EventStatus
 
 /**
  * Repository abstraction for transactional event storage and processing lifecycle management.
@@ -41,13 +42,14 @@ interface EventRepository {
     suspend fun <E : Event> markAsDeadLetter(event: E)
 
     /**
-     * Marks event processing as failed.
+     * Registers a processing failure for the event.
      *
-     * Implementations may increment retry counters
-     * and move the event to dead-letter state
-     * depending on retry policy configuration.
+     * Implementations may increment retry counters and decide whether
+     * to keep the event for retry or move it to dead-letter state
+     * depending on retry policy.
      *
-     * @param event failed event
+     * @param event event that failed during processing
+     * @return resulting status after failure handling
      */
-    suspend fun <E : Event> markAsFailed(event: E)
+    suspend fun <E : Event> markAsFailed(event: E): EventStatus
 }

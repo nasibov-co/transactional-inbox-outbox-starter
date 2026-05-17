@@ -10,6 +10,20 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.Duration
 
+/**
+ * Poller responsible for continuously fetching events of a specific type
+ * from the repository and pushing them into a processing channel.
+ *
+ * The poller implements adaptive polling behavior:
+ * - fast polling when events are available
+ * - exponential backoff when no events are found
+ * - recovery delay handling on failures
+ *
+ * Each poller runs in its own coroutine and operates independently per event type.
+ * This allows horizontal scalability and isolation between event streams.
+ *
+ * The fetched events are sent to a shared [Channel] for downstream processing.
+ */
 class EventPoller(
     private val eventType: Class<out Event>,
     private val repository: EventRepository,
@@ -20,14 +34,27 @@ class EventPoller(
 
     private val log = KotlinLogging.logger {}
 
+    /**
+     * Starts the polling loop in a dedicated coroutine.
+     *
+     * The loop runs until the coroutine scope is cancelled.
+     * It continuously fetches batches of events and sends them
+     * to the processing channel.
+     *
+     * Backoff strategy:
+     * - uses `activeIntervalMs` when events are being processed
+     * - doubles delay when no events are found or errors occur
+     * - caps delay at `maxIdleIntervalMs`
+     */
     fun start() {
         scope.launch {
-            var currentDelay =
-                properties.polling.activeIntervalMs
+
+            var currentDelay = properties.polling.activeIntervalMs
+
             while (isActive) {
                 try {
-                    val batch =
-                        repository.fetchBatch(eventType)
+                    val batch = repository.fetchBatch(eventType)
+
                     if (batch.isEmpty()) {
                         delay(currentDelay.toMillis())
                         currentDelay = nextDelay(
@@ -36,17 +63,20 @@ class EventPoller(
                         )
                         continue
                     }
-                    currentDelay =
-                        properties.polling.activeIntervalMs
-                    batch.forEach {
-                        channel.send(it)
+
+                    currentDelay = properties.polling.activeIntervalMs
+
+                    batch.forEach { event ->
+                        channel.send(event)
                     }
 
                 } catch (e: Exception) {
                     log.error(e) {
                         "Polling failed for ${eventType.simpleName}"
                     }
+
                     delay(currentDelay.toMillis())
+
                     currentDelay = nextDelay(
                         currentDelay,
                         properties.polling.maxIdleIntervalMs
@@ -56,6 +86,13 @@ class EventPoller(
         }
     }
 
+    /**
+     * Calculates next polling delay using exponential backoff.
+     *
+     * @param current current delay value
+     * @param max maximum allowed delay
+     * @return next delay value bounded by [max]
+     */
     private fun nextDelay(
         current: Duration,
         max: Duration

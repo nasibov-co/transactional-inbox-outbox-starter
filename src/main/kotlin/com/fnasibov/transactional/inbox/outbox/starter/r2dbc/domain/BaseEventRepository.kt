@@ -10,12 +10,10 @@ import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.data.relational.core.mapping.Table
 import org.springframework.data.relational.core.query.Criteria.where
 import org.springframework.data.relational.core.query.Query
-import org.springframework.transaction.ReactiveTransactionManager
 import org.springframework.transaction.reactive.TransactionalOperator
 import reactor.core.publisher.Mono
 import java.time.ZonedDateTime
-import java.util.UUID
-import kotlin.jvm.java
+import java.util.*
 
 /**
  * Default implementation of [EventRepository] responsible for managing
@@ -198,17 +196,17 @@ class BaseEventRepository(
     }
 
     /**
-     * Marks event processing as failed.
+     * Handles failed event processing by updating retry state and status.
      *
-     * Increments retry counter and updates event status according
-     * to retry configuration. If the retry limit is exceeded,
-     * the event is moved to `DEAD_LETTER`.
+     * Increments retry counter and updates event status based on retry policy.
+     * If the retry limit is exceeded, the event is moved to `DEAD_LETTER`.
      *
      * Also updates `last_attempt_at` and `updated_at` timestamps.
      *
-     * @param event failed event
+     * @param event event that failed during processing
+     * @return resulting event status after applying failure handling logic
      */
-    override suspend fun <E : Event> markAsFailed(event: E) {
+    override suspend fun <E : Event> markAsFailed(event: E): EventStatus {
         val tableName = getTableName(event.javaClass)
 
         val nextRetryCount = event.retryCount + 1
@@ -236,6 +234,8 @@ class BaseEventRepository(
             .fetch()
             .rowsUpdated()
             .awaitSingle()
+
+        return nextStatus
     }
 
     /**

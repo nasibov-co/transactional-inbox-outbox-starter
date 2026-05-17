@@ -32,13 +32,19 @@ interface EventHandler<E : Event> {
     suspend fun handle(event: E)
 
     /**
-     * Handles errors that occur during event processing.
+     * Handles failures that occur during event processing.
      *
-     * This method is invoked if the [handle] method fails or if an unexpected exception occurs.
-     * Implementations can define custom retry logic, logging, or dead-letter queue handling here.
+     * This method is invoked when [handle] fails or when an unexpected exception
+     * occurs during processing in the worker pipeline.
      *
-     * @param event The event that failed to process.
-     * @param error The exception that occurred.
+     * It can be used for:
+     * - logging and monitoring
+     * - custom retry logic
+     * - sending events to a dead-letter queue
+     * - compensating actions
+     *
+     * @param event event that failed processing
+     * @param error exception that caused the failure
      */
-    suspend fun handleError(event: E, error: Throwable)
+    suspend fun handleDeadLetter(event: E, error: Throwable)
 }

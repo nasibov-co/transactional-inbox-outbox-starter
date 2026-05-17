@@ -4,24 +4,50 @@ import java.time.ZonedDateTime
 import java.util.*
 
 /**
- * Base model for Transactional Outbox events.
+ * Base contract for transactional inbox/outbox events.
  *
- * This class is designed to be extended by domain-specific event models.
- * It contains common fields required for the outbox pattern:
- * - Identification (id, aggregateId, aggregateType)
- * - Payload data
- * - Lifecycle status (status, retryCount)
- * - Timestamps (createdAt, updatedAt)
- **/
-interface Event{
+ * Implementations represent persistable event records used
+ * in asynchronous message processing workflows.
+ *
+ * The interface defines common metadata required for:
+ * - event identification
+ * - payload storage
+ * - processing state tracking
+ * - retry handling
+ * - audit timestamps
+ *
+ * Event implementations are typically mapped to database tables
+ * using Spring Data annotations such as `@Table`.
+ */
+interface Event {
+
+    /**
+     * Unique event identifier.
+     */
     val id: UUID
-    val aggregateType: String
-    val aggregateId: String
-    val payload: String
-    val schemaVersion: String?
+
+    /**
+     * Current processing status of the event.
+     */
     val status: EventStatus
+
+    /**
+     * Event creation timestamp.
+     */
     val createdAt: ZonedDateTime
+
+    /**
+     * Timestamp of the latest event update.
+     */
     val updatedAt: ZonedDateTime?
+
+    /**
+     * Number of processing retry attempts.
+     */
     val retryCount: Int
+
+    /**
+     * Timestamp of the latest processing attempt.
+     */
     val lastAttemptAt: ZonedDateTime?
 }
