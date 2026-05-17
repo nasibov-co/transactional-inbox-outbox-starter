@@ -2,7 +2,7 @@ plugins {
 	kotlin("jvm") version "2.2.21"
 	kotlin("plugin.spring") version "2.2.21"
 	`java-library`
-	`maven-publish`
+	id("com.vanniktech.maven.publish") version "0.36.0"
 }
 
 group = "com.fnasibov"
@@ -46,24 +46,33 @@ tasks.withType<Test> {
 }
 
 
-publishing {
-	publications {
-		create<MavenPublication>("mavenJava") {
-			from(components["java"])
-			groupId = project.group.toString()
-			artifactId = "transactional-inbox-outbox-starter-r2dbc"
-			version = project.version.toString()
-		}
-	}
-	repositories {
-		maven {
-			name = "OSSRH"
-			url = uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
+mavenPublishing {
+	publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL) // Или S01 для старого
 
-			credentials {
-				username = System.getenv("MAVEN_USERNAME")
-				password = System.getenv("MAVEN_PASSWORD")
+	signAllPublications()
+
+	coordinates(group, "transactional-inbox-outbox-starter-r2dbc", version)
+
+	pom {
+		name.set("Transactional Inbox Outbox Starter")
+		description.set("A lightweight Spring Boot starter for implementing the Transactional Outbox / Inbox pattern using R2DBC + Coroutines.")
+		inceptionYear.set("2026")
+		url.set("https://github.com/fnasibov/transactional-inbox-outbox-starter-r2dbc")
+		licenses {
+			license {
+				name.set("The Apache License, Version 2.0")
+				url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
 			}
+		}
+		developers {
+			developer {
+				id.set("fnasibov")
+				name.set("Fakhri Nasibov")
+				email.set("fakhri.nasibov@gmail.com")
+			}
+		}
+		scm {
+			url.set("https://github.com/fnasibov/transactional-inbox-outbox-starter-r2dbc")
 		}
 	}
 }
