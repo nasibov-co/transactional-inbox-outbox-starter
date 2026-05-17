@@ -6,6 +6,7 @@ import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.domain.BaseEventRep
 import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.domain.EventProcessor
 import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.domain.EventProcessorStarter
 import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.domain.EventRepository
+import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.FetchBatchStrategy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +18,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.transaction.ReactiveTransactionManager
+import org.springframework.transaction.reactive.TransactionalOperator
 
 @AutoConfiguration
 @ConditionalOnProperty("transactional.enabled", havingValue = "true", matchIfMissing = false)
@@ -41,9 +43,12 @@ class TransactionalInboxOutboxAutoconfiguration(
     fun eventRepository(
         template: R2dbcEntityTemplate,
         reactiveTransactionManager: ReactiveTransactionManager,
-        properties: TransactionalProperties
+        properties: TransactionalProperties,
+        strategies: List<FetchBatchStrategy<out Event>>
     ): BaseEventRepository {
-        return BaseEventRepository(template, reactiveTransactionManager, properties)
+        val strategiesByEventType = strategies.associateBy { it.eventType }
+        val transactionalOperator = TransactionalOperator.create(reactiveTransactionManager)
+        return BaseEventRepository(template, properties, transactionalOperator, strategiesByEventType)
     }
 
     @Bean
