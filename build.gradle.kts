@@ -3,12 +3,16 @@ plugins {
 	kotlin("plugin.spring") version "2.2.21"
 	`java-library`
 	`maven-publish`
+	id("signing")
+
 }
 
 group = "com.fnasibov"
-version = "0.0.3"
+version = "0.0.1"
 
 java {
+	withSourcesJar()
+	withJavadocJar()
 	toolchain {
 		languageVersion = JavaLanguageVersion.of(21)
 	}
@@ -43,6 +47,7 @@ tasks.withType<Test> {
 	useJUnitPlatform()
 }
 
+
 publishing {
 	publications {
 		create<MavenPublication>("mavenJava") {
@@ -51,5 +56,27 @@ publishing {
 			artifactId = "transactional-inbox-outbox-starter-r2dbc"
 			version = project.version.toString()
 		}
+	}
+	repositories {
+		maven {
+			name = "central"
+			url = uri("https://central.sonatype.com/api/v1/publisher/deployments")
+
+			credentials {
+				username = System.getenv("CENTRAL_USERNAME")
+				password = System.getenv("CENTRAL_PASSWORD")
+			}
+		}
+	}
+}
+
+signing {
+	val keyId = System.getenv("GPG_KEY_ID")
+	val key = System.getenv("GPG_PRIVATE_KEY")
+	val password = System.getenv("GPG_PASSWORD")
+
+	if (key != null && password != null) {
+		useInMemoryPgpKeys(keyId, key, password)
+		sign(publishing.publications["mavenJava"])
 	}
 }
