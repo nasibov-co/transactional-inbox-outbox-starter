@@ -17,6 +17,7 @@ import org.springframework.transaction.ReactiveTransaction
 import org.springframework.transaction.ReactiveTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import reactor.core.publisher.Mono
+import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -99,6 +100,128 @@ class TransactionalInboxOutboxAutoconfigurationTest {
                 assertEquals(3, properties.processing.concurrencyFor(QualifiedBindingEvent::class.java))
                 assertEquals(2, properties.processing.concurrencyFor(FallbackBindingEvent::class.java))
             }
+    }
+
+    @Test
+    fun `retryFor returns global retry when event type has no override`() {
+        val defaultRetry = TransactionalProperties.Retry(
+            maxAttempts = 3,
+            initialDelay = Duration.ofSeconds(1),
+            multiplier = 2.0,
+            maxDelay = Duration.ofMinutes(1)
+        )
+
+        val retry = TransactionalProperties.Processing()
+            .retryFor(FallbackBindingEvent::class.java, defaultRetry)
+
+        assertRetry(
+            retry = retry,
+            maxAttempts = 3,
+            initialDelay = Duration.ofSeconds(1),
+            multiplier = 2.0,
+            maxDelay = Duration.ofMinutes(1)
+        )
+    }
+
+    @Test
+    fun `retryFor returns full event type retry override`() {
+        val defaultRetry = TransactionalProperties.Retry(
+            maxAttempts = 3,
+            initialDelay = Duration.ofSeconds(1),
+            multiplier = 2.0,
+            maxDelay = Duration.ofMinutes(1)
+        )
+        val processing = TransactionalProperties.Processing(
+            eventTypes = listOf(
+                TransactionalProperties.EventTypeProcessing(
+                    eventType = BindingEvent::class.java.simpleName,
+                    retry = TransactionalProperties.EventTypeRetry(
+                        maxAttempts = 10,
+                        initialDelay = Duration.ofSeconds(5),
+                        multiplier = 1.5,
+                        maxDelay = Duration.ofMinutes(10)
+                    )
+                )
+            )
+        )
+
+        val retry = processing.retryFor(BindingEvent::class.java, defaultRetry)
+
+        assertRetry(
+            retry = retry,
+            maxAttempts = 10,
+            initialDelay = Duration.ofSeconds(5),
+            multiplier = 1.5,
+            maxDelay = Duration.ofMinutes(10)
+        )
+    }
+
+    @Test
+    fun `retryFor merges partial event type retry with global retry`() {
+        val defaultRetry = TransactionalProperties.Retry(
+            maxAttempts = 3,
+            initialDelay = Duration.ofSeconds(1),
+            multiplier = 2.0,
+            maxDelay = Duration.ofMinutes(1)
+        )
+        val processing = TransactionalProperties.Processing(
+            eventTypes = listOf(
+                TransactionalProperties.EventTypeProcessing(
+                    eventType = BindingEvent::class.java.simpleName,
+                    retry = TransactionalProperties.EventTypeRetry(
+                        maxAttempts = 10
+                    )
+                )
+            )
+        )
+
+        val retry = processing.retryFor(BindingEvent::class.java, defaultRetry)
+
+        assertRetry(
+            retry = retry,
+            maxAttempts = 10,
+            initialDelay = Duration.ofSeconds(1),
+            multiplier = 2.0,
+            maxDelay = Duration.ofMinutes(1)
+        )
+    }
+
+    @Test
+    fun `retryFor matches by fully qualified name`() {
+        val defaultRetry = TransactionalProperties.Retry()
+        val processing = TransactionalProperties.Processing(
+            eventTypes = listOf(
+                TransactionalProperties.EventTypeProcessing(
+                    eventType = QualifiedBindingEvent::class.java.name,
+                    retry = TransactionalProperties.EventTypeRetry(
+                        maxAttempts = 5
+                    )
+                )
+            )
+        )
+
+        val retry = processing.retryFor(QualifiedBindingEvent::class.java, defaultRetry)
+
+        assertEquals(5, retry.maxAttempts)
+    }
+
+    @Test
+    fun `retryFor matches by simple name`() {
+        val defaultRetry = TransactionalProperties.Retry()
+        val processing = TransactionalProperties.Processing(
+            eventTypes = listOf(
+                TransactionalProperties.EventTypeProcessing(
+                    eventType = BindingEvent::class.java.simpleName,
+                    retry = TransactionalProperties.EventTypeRetry(
+                        maxAttempts = 5
+                    )
+                )
+            )
+        )
+
+        val retry = processing.retryFor(BindingEvent::class.java, defaultRetry)
+
+        assertEquals(5, retry.maxAttempts)
     }
 
     @Test
@@ -197,4 +320,17 @@ class TransactionalInboxOutboxAutoconfigurationTest {
     private class QualifiedBindingEvent : BaseEvent()
 
     private class FallbackBindingEvent : BaseEvent()
+
+    private fun assertRetry(
+        retry: TransactionalProperties.ResolvedRetry,
+        maxAttempts: Int,
+        initialDelay: Duration,
+        multiplier: Double,
+        maxDelay: Duration
+    ) {
+        assertEquals(maxAttempts, retry.maxAttempts)
+        assertEquals(initialDelay, retry.initialDelay)
+        assertEquals(multiplier, retry.multiplier)
+        assertEquals(maxDelay, retry.maxDelay)
+    }
 }

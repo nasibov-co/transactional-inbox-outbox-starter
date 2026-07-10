@@ -13,7 +13,7 @@ Gradle Kotlin DSL:
 
 ```kotlin
 dependencies {
-    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-r2dbc:2.0.0")
+    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-r2dbc:2.1.0")
 }
 ```
 
@@ -178,8 +178,15 @@ transactional:
     event-types:
       - event-type: PaymentEvent
         concurrency: 2
+        retry:
+          max-attempts: 10
+          initial-delay: 5s
+          multiplier: 1.5
+          max-delay: 10m
       - event-type: com.example.billing.InvoiceEvent
         concurrency: 8
+        retry:
+          max-attempts: 5
 
     # Maximum time to drain already fetched events during shutdown.
     shutdown-timeout: 30s
@@ -211,6 +218,8 @@ Defaults:
 | `transactional.retry.initial-delay` | `1s` |
 | `transactional.retry.multiplier` | `2.0` |
 | `transactional.retry.max-delay` | `1m` |
+
+Event-specific retry fields under `transactional.processing.event-types[].retry` are optional. Any omitted field falls back to the matching global `transactional.retry.*` value.
 
 Duration properties support readable values such as `100ms`, `1s`, `30s`, and `1m`.
 
@@ -260,6 +269,7 @@ Failure behavior:
 
 - Handler failures call `markAsFailed`.
 - Failed events are retried with exponential backoff using `retry.initial-delay`, `retry.multiplier`, and `retry.max-delay`.
+- Retry settings can be overridden per event type using `transactional.processing.event-types[].retry`.
 - Once `retry.max-attempts` is reached, the event moves to `DEAD_LETTER`.
 - `handleDeadLetter` is called only after the event reaches `DEAD_LETTER`.
 

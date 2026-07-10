@@ -118,6 +118,20 @@ data class TransactionalProperties(
         fun concurrencyFor(eventType: Class<out Event>): Int =
             eventTypes.firstOrNull { it.matches(eventType) }?.concurrency
                 ?: concurrency
+
+        fun retryFor(
+            eventType: Class<out Event>,
+            defaultRetry: Retry
+        ): ResolvedRetry {
+            val eventRetry = eventTypes.firstOrNull { it.matches(eventType) }?.retry
+
+            return ResolvedRetry(
+                maxAttempts = eventRetry?.maxAttempts ?: defaultRetry.maxAttempts,
+                initialDelay = eventRetry?.initialDelay ?: defaultRetry.initialDelay,
+                multiplier = eventRetry?.multiplier ?: defaultRetry.multiplier,
+                maxDelay = eventRetry?.maxDelay ?: defaultRetry.maxDelay
+            )
+        }
     }
 
     /**
@@ -135,7 +149,13 @@ data class TransactionalProperties(
          * Number of concurrent workers for the event type.
          */
         @field:Min(1)
-        var concurrency: Int? = null
+        var concurrency: Int? = null,
+
+        /**
+         * Event type specific retry settings.
+         */
+        @field:Valid
+        var retry: EventTypeRetry? = null
     ) {
 
         fun matches(type: Class<out Event>): Boolean =
@@ -143,6 +163,45 @@ data class TransactionalProperties(
                 eventType == type.canonicalName ||
                 eventType == type.simpleName
     }
+
+    /**
+     * Retry override for a specific event type.
+     */
+    data class EventTypeRetry(
+
+        /**
+         * Maximum number of retry attempts before moving
+         * an event to dead-letter state.
+         */
+        @field:Min(1)
+        var maxAttempts: Int? = null,
+
+        /**
+         * Initial retry delay used.
+         */
+        var initialDelay: Duration? = null,
+
+        /**
+         * Multiplier applied to retry delay after each failed attempt.
+         */
+        @field:DecimalMin("1.0")
+        var multiplier: Double? = null,
+
+        /**
+         * Maximum retry delay.
+         */
+        var maxDelay: Duration? = null
+    )
+
+    /**
+     * Fully resolved retry behavior for an event type.
+     */
+    data class ResolvedRetry(
+        val maxAttempts: Int,
+        val initialDelay: Duration,
+        val multiplier: Double,
+        val maxDelay: Duration
+    )
 
     /**
      * Retry behavior configuration.

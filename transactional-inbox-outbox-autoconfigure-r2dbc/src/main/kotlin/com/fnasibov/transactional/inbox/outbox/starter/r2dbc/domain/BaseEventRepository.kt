@@ -201,13 +201,14 @@ class BaseEventRepository(
      */
     override suspend fun <E : Event> markAsFailed(event: E): EventStatus {
         val tableName = getTableName(event.javaClass)
+        val retry = properties.processing.retryFor(event.javaClass, properties.retry)
 
         val nextRetryCount = event.retryCount + 1
         val now = ZonedDateTime.now()
-        val nextRetryAt = now.plus(nextRetryDelay(nextRetryCount))
+        val nextRetryAt = now.plus(nextRetryDelay(nextRetryCount, retry))
 
         val nextStatus =
-            if (nextRetryCount < properties.retry.maxAttempts) {
+            if (nextRetryCount < retry.maxAttempts) {
                 EventStatus.FAILED
             } else {
                 EventStatus.DEAD_LETTER
@@ -248,10 +249,13 @@ class BaseEventRepository(
         return nextStatus
     }
 
-    private fun nextRetryDelay(retryCount: Int): Duration {
-        val multiplier = properties.retry.multiplier.pow((retryCount - 1).coerceAtLeast(0))
-        val delayMillis = (properties.retry.initialDelay.toMillis() * multiplier).toLong()
-        return Duration.ofMillis(delayMillis).coerceAtMost(properties.retry.maxDelay)
+    private fun nextRetryDelay(
+        retryCount: Int,
+        retry: TransactionalProperties.ResolvedRetry
+    ): Duration {
+        val multiplier = retry.multiplier.pow((retryCount - 1).coerceAtLeast(0))
+        val delayMillis = (retry.initialDelay.toMillis() * multiplier).toLong()
+        return Duration.ofMillis(delayMillis).coerceAtMost(retry.maxDelay)
     }
 
     /**
