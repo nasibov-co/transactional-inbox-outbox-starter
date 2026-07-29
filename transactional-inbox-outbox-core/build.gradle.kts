@@ -48,4 +48,27 @@ mavenPublishing {
     publishToMavenCentral()
     signAllPublications()
     coordinates("io.github.fnasibov", "transactional-inbox-outbox-core", project.version.toString())
+
+    pom {
+        name.set("Transactional Inbox Outbox Core")
+        description.set("Database-independent event processing, retry, and lifecycle infrastructure for the Transactional Outbox / Inbox pattern.")
+        inceptionYear.set("2026")
+        url.set("https://github.com/fnasibov/transactional-inbox-outbox-starter-r2dbc")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                id.set("fnasibov")
+                name.set("Fakhri Nasibov")
+                email.set("fakhri.nasibov@gmail.com")
+            }
+        }
+        scm {
+            url.set("https://github.com/fnasibov/transactional-inbox-outbox-starter-r2dbc")
+        }
+    }
 }
