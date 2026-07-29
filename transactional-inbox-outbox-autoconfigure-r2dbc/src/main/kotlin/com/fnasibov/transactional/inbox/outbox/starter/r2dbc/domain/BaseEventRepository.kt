@@ -1,9 +1,10 @@
 package com.fnasibov.transactional.inbox.outbox.starter.r2dbc.domain
 
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.FetchBatchStrategy
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.Event
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.EventStatus
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.configuration.TransactionalProperties
+import com.fnasibov.transactional.inbox.outbox.core.api.FetchBatchStrategy
+import com.fnasibov.transactional.inbox.outbox.core.api.model.Event
+import com.fnasibov.transactional.inbox.outbox.core.api.model.EventStatus
+import com.fnasibov.transactional.inbox.outbox.core.configuration.TransactionalProperties
+import com.fnasibov.transactional.inbox.outbox.core.domain.EventRepository
 import kotlinx.coroutines.reactive.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingle
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate

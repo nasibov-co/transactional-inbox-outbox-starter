@@ -1,6 +1,6 @@
 package com.fnasibov.transactional.inbox.outbox.demo
 
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.BaseEvent
+import com.fnasibov.transactional.inbox.outbox.core.api.model.BaseEvent
 import org.springframework.data.relational.core.mapping.Table
 
 @Table("demo_events")

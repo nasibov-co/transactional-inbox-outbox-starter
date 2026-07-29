@@ -1,6 +1,6 @@
 package com.fnasibov.transactional.inbox.outbox.demo
 
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.EventHandler
+import com.fnasibov.transactional.inbox.outbox.core.api.EventHandler
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 

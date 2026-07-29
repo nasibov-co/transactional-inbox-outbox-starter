@@ -1,8 +1,8 @@
 package com.fnasibov.transactional.inbox.outbox.starter.r2dbc.domain
 
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.BaseEvent
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.EventStatus
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.configuration.TransactionalProperties
+import com.fnasibov.transactional.inbox.outbox.core.api.model.BaseEvent
+import com.fnasibov.transactional.inbox.outbox.core.api.model.EventStatus
+import com.fnasibov.transactional.inbox.outbox.core.configuration.TransactionalProperties
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot

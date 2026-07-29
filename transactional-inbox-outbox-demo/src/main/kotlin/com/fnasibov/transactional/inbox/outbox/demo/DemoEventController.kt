@@ -1,6 +1,6 @@
 package com.fnasibov.transactional.inbox.outbox.demo
 
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.EventStatus
+import com.fnasibov.transactional.inbox.outbox.core.api.model.EventStatus
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping

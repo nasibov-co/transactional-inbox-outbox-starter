@@ -11,6 +11,7 @@ java {
 
 dependencies {
     api(platform("org.springframework.boot:spring-boot-dependencies:4.0.6"))
+    api(project(":transactional-inbox-outbox-core"))
     api(project(":transactional-inbox-outbox-autoconfigure-r2dbc"))
     api("org.springframework.boot:spring-boot-starter-data-r2dbc")
     api("org.springframework.boot:spring-boot-starter-validation")

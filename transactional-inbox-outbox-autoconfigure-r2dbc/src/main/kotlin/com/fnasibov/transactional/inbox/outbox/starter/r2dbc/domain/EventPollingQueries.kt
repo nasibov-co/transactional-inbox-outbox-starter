@@ -1,6 +1,6 @@
 package com.fnasibov.transactional.inbox.outbox.starter.r2dbc.domain
 
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.configuration.TransactionalProperties
+import com.fnasibov.transactional.inbox.outbox.core.configuration.TransactionalProperties
 import java.time.ZonedDateTime
 
 internal object EventPollingQueries {

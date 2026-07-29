@@ -13,7 +13,7 @@ Gradle Kotlin DSL:
 
 ```kotlin
 dependencies {
-    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-r2dbc:2.1.0")
+    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-r2dbc:3.0.0")
 }
 ```
 
@@ -25,8 +25,9 @@ This repository follows the Spring Boot starter layout:
 
 | Module | Purpose |
 | --- | --- |
-| `transactional-inbox-outbox-autoconfigure-r2dbc` | Auto-configuration, public API, domain implementation, configuration metadata, and tests. |
-| `transactional-inbox-outbox-starter-r2dbc` | Thin starter artifact that brings the auto-configure module and required runtime dependencies. |
+| `transactional-inbox-outbox-core` | Database-independent event contracts, processing pipeline, retry policy, and core auto-configuration. |
+| `transactional-inbox-outbox-autoconfigure-r2dbc` | R2DBC repository implementation and its auto-configuration. |
+| `transactional-inbox-outbox-starter-r2dbc` | R2DBC starter that brings `core`, the R2DBC adapter, and required dependencies. |
 
 ## Quick Start
 
@@ -35,7 +36,7 @@ This repository follows the Spring Boot starter layout:
 Each event type is a Spring Data R2DBC entity. Extend `BaseEvent` to inherit the lifecycle columns and add only your domain-specific fields.
 
 ```kotlin
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.model.BaseEvent
+import com.fnasibov.transactional.inbox.outbox.core.api.model.BaseEvent
 import org.springframework.data.relational.core.mapping.Table
 import java.util.UUID
 
@@ -79,7 +80,7 @@ CREATE INDEX idx_payment_events_polling
 Every event type that should be processed must have at least one `EventHandler` bean.
 
 ```kotlin
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.EventHandler
+import com.fnasibov.transactional.inbox.outbox.core.api.EventHandler
 import org.springframework.stereotype.Component
 
 @Component
@@ -230,7 +231,7 @@ By default, the starter fetches eligible events from the table mapped by `@Table
 Register `FetchBatchStrategy` when an event type needs custom selection, priority ordering, partitioning, or database-specific locking.
 
 ```kotlin
-import com.fnasibov.transactional.inbox.outbox.starter.r2dbc.api.FetchBatchStrategy
+import com.fnasibov.transactional.inbox.outbox.core.api.FetchBatchStrategy
 import org.springframework.stereotype.Component
 
 @Component
