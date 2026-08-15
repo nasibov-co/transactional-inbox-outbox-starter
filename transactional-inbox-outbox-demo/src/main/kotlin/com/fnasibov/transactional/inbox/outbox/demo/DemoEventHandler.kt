@@ -13,6 +13,7 @@ class DemoEventHandler : EventHandler<DemoEvent> {
         DemoEvent::class.java
 
     override suspend fun handle(event: DemoEvent) {
+        throw RuntimeException()
         logger.info(
             "Handled demo event id={} payload={}",
             event.id,

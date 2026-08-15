@@ -27,9 +27,16 @@ class PriorityDemoEventFetchBatchStrategy(
     override suspend fun fetchBatch(): List<DemoEvent> =
         transactionalOperator.execute {
             val now = ZonedDateTime.now()
+            val processingStaleBefore = now.minus(
+                properties.polling.processingStaleTimeout
+            )
 
             template.databaseClient.sql(SELECT_IDS_SQL)
-                .bind("status", EventStatus.PENDING.name)
+                .bind("pendingStatus", EventStatus.PENDING.name)
+                .bind("processingStatus", EventStatus.PROCESSING.name)
+                .bind("failedStatus", EventStatus.FAILED.name)
+                .bind("processingStaleBefore", processingStaleBefore)
+                .bind("now", now)
                 .bind("limit", properties.polling.batchSize)
                 .map { row, _ -> row.get("id", UUID::class.java)!! }
                 .all()
@@ -41,7 +48,7 @@ class PriorityDemoEventFetchBatchStrategy(
 
                     template.databaseClient.sql(UPDATE_STATUS_SQL)
                         .bind("status", EventStatus.PROCESSING.name)
-                        .bind("updatedAt", now)
+                        .bind("now", now)
                         .bind("ids", ids)
                         .fetch()
                         .rowsUpdated()
@@ -59,7 +66,19 @@ class PriorityDemoEventFetchBatchStrategy(
         val SELECT_IDS_SQL = """
             SELECT id
             FROM demo_events
-            WHERE status = :status
+            WHERE status = :pendingStatus
+            OR (
+                status = :processingStatus
+                AND last_attempt_at IS NOT NULL
+                AND last_attempt_at < :processingStaleBefore
+            )
+            OR (
+                status = :failedStatus
+                AND (
+                    next_retry_at IS NULL
+                    OR next_retry_at <= :now
+                )
+            )
             ORDER BY priority DESC, created_at ASC
             FOR UPDATE SKIP LOCKED
             LIMIT :limit
@@ -68,7 +87,9 @@ class PriorityDemoEventFetchBatchStrategy(
         val UPDATE_STATUS_SQL = """
             UPDATE demo_events
             SET status = :status,
-                updated_at = :updatedAt
+                last_attempt_at = :now,
+                updated_at = :now,
+                next_retry_at = NULL
             WHERE id IN (:ids)
         """.trimIndent()
     }
