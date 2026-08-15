@@ -1,4 +1,5 @@
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.fnasibov/transactional-inbox-outbox-starter-r2dbc?label=maven%20central)](https://central.sonatype.com/artifact/io.github.fnasibov/transactional-inbox-outbox-starter-r2dbc)
+[![R2DBC](https://img.shields.io/maven-central/v/io.github.fnasibov/transactional-inbox-outbox-starter-r2dbc?label=R2DBC&color=blue)](https://central.sonatype.com/artifact/io.github.fnasibov/transactional-inbox-outbox-starter-r2dbc)
+[![JDBC](https://img.shields.io/maven-central/v/io.github.fnasibov/transactional-inbox-outbox-starter-jdbc?label=JDBC&color=green)](https://central.sonatype.com/artifact/io.github.fnasibov/transactional-inbox-outbox-starter-jdbc)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 <img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=dfbc9d9c-c0c5-4e8d-b14c-c48fe4d77ee9" />
 # Transactional Inbox/Outbox Starter
