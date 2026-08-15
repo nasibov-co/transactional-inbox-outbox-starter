@@ -13,7 +13,9 @@ class DemoEventHandler : EventHandler<DemoEvent> {
         DemoEvent::class.java
 
     override suspend fun handle(event: DemoEvent) {
-        throw RuntimeException()
+        if (event.retryCount < 2) {
+            throw RuntimeException()
+        }
         logger.info(
             "Handled demo event id={} payload={}",
             event.id,

@@ -13,6 +13,9 @@ class JdbcDemoEventHandler : BlockingEventHandler<JdbcDemoEvent> {
         JdbcDemoEvent::class.java
 
     override fun handle(event: JdbcDemoEvent) {
+        if (event.retryCount < 2) {
+            throw RuntimeException()
+        }
         logger.info(
             "Handled JDBC demo event id={} payload={}",
             event.id,
