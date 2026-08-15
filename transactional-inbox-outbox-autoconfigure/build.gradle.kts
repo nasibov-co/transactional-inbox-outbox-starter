@@ -16,15 +16,19 @@ dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:4.0.6"))
     kapt(platform("org.springframework.boot:spring-boot-dependencies:4.0.6"))
 
-    api("org.springframework.boot:spring-boot")
-    api("org.springframework.data:spring-data-commons")
-    api("io.micrometer:micrometer-core")
-    api("jakarta.validation:jakarta.validation-api")
+    api(project(":transactional-inbox-outbox-core"))
+    implementation("org.springframework.boot:spring-boot-autoconfigure")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
 
-    implementation("io.github.oshai:kotlin-logging-jvm:8.0.02")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
-    kapt("org.springframework.boot:spring-boot-configuration-processor")
+    compileOnly(project(":transactional-inbox-outbox-r2dbc"))
+    compileOnly(project(":transactional-inbox-outbox-jdbc"))
+    compileOnly("org.springframework.boot:spring-boot-starter-data-r2dbc")
+    compileOnly("org.springframework.boot:spring-boot-starter-data-jdbc")
+    compileOnly("org.springframework.boot:spring-boot-health")
 
+    testImplementation(project(":transactional-inbox-outbox-r2dbc"))
+    testImplementation(project(":transactional-inbox-outbox-jdbc"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:1.14.9")
@@ -45,11 +49,11 @@ tasks.withType<Test> {
 mavenPublishing {
     publishToMavenCentral()
     signAllPublications()
-    coordinates("io.github.fnasibov", "transactional-inbox-outbox-core", project.version.toString())
+    coordinates("io.github.fnasibov", "transactional-inbox-outbox-autoconfigure", project.version.toString())
 
     pom {
-        name.set("Transactional Inbox Outbox Core")
-        description.set("Database-independent event processing, retry, and lifecycle infrastructure for the Transactional Outbox / Inbox pattern.")
+        name.set("Transactional Inbox Outbox Autoconfigure")
+        description.set("Persistence-neutral Spring Boot auto-configuration for Transactional Inbox / Outbox starters.")
         inceptionYear.set("2026")
         url.set("https://github.com/fnasibov/transactional-inbox-outbox-starter")
         licenses {

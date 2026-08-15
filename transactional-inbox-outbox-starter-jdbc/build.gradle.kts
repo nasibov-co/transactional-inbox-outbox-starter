@@ -12,22 +12,20 @@ java {
 dependencies {
     api(platform("org.springframework.boot:spring-boot-dependencies:4.0.6"))
     api(project(":transactional-inbox-outbox-core"))
-    api(project(":transactional-inbox-outbox-r2dbc"))
+    api(project(":transactional-inbox-outbox-jdbc"))
     api(project(":transactional-inbox-outbox-autoconfigure"))
-    api("org.springframework.boot:spring-boot-starter-data-r2dbc")
+    api("org.springframework.boot:spring-boot-starter-data-jdbc")
     api("org.springframework.boot:spring-boot-starter-validation")
 }
 
 mavenPublishing {
     publishToMavenCentral()
-
     signAllPublications()
-
-    coordinates("io.github.fnasibov", "transactional-inbox-outbox-starter-r2dbc", project.version.toString())
+    coordinates("io.github.fnasibov", "transactional-inbox-outbox-starter-jdbc", project.version.toString())
 
     pom {
-        name.set("Transactional Inbox Outbox Starter")
-        description.set("A lightweight Spring Boot starter for implementing the Transactional Outbox / Inbox pattern using R2DBC + Coroutines.")
+        name.set("Transactional Inbox Outbox JDBC Starter")
+        description.set("Spring Boot starter for the Transactional Outbox / Inbox pattern using JDBC.")
         inceptionYear.set("2026")
         url.set("https://github.com/fnasibov/transactional-inbox-outbox-starter")
         licenses {

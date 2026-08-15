@@ -16,14 +16,9 @@ dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:4.0.6"))
     kapt(platform("org.springframework.boot:spring-boot-dependencies:4.0.6"))
 
-    api("org.springframework.boot:spring-boot")
-    api("org.springframework.data:spring-data-commons")
-    api("io.micrometer:micrometer-core")
-    api("jakarta.validation:jakarta.validation-api")
-
-    implementation("io.github.oshai:kotlin-logging-jvm:8.0.02")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
-    kapt("org.springframework.boot:spring-boot-configuration-processor")
+    api(project(":transactional-inbox-outbox-core"))
+    api("org.springframework.boot:spring-boot-starter-data-jdbc")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
@@ -45,11 +40,11 @@ tasks.withType<Test> {
 mavenPublishing {
     publishToMavenCentral()
     signAllPublications()
-    coordinates("io.github.fnasibov", "transactional-inbox-outbox-core", project.version.toString())
+    coordinates("io.github.fnasibov", "transactional-inbox-outbox-jdbc", project.version.toString())
 
     pom {
-        name.set("Transactional Inbox Outbox Core")
-        description.set("Database-independent event processing, retry, and lifecycle infrastructure for the Transactional Outbox / Inbox pattern.")
+        name.set("Transactional Inbox Outbox JDBC")
+        description.set("JDBC persistence adapter for the Transactional Outbox / Inbox pattern.")
         inceptionYear.set("2026")
         url.set("https://github.com/fnasibov/transactional-inbox-outbox-starter")
         licenses {

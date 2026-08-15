@@ -1,15 +1,17 @@
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.fnasibov/transactional-inbox-outbox-starter-r2dbc?label=maven%20central)](https://central.sonatype.com/artifact/io.github.fnasibov/transactional-inbox-outbox-starter-r2dbc)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 <img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=dfbc9d9c-c0c5-4e8d-b14c-c48fe4d77ee9" />
-# Transactional Inbox/Outbox R2DBC Starter
+# Transactional Inbox/Outbox Starter
 
-A lightweight Spring Boot starter for implementing transactional inbox/outbox processing with **R2DBC** and **Kotlin coroutines**.
+A lightweight Spring Boot starter for transactional inbox/outbox processing with either **JDBC** or **R2DBC**. The processing engine uses Kotlin coroutines internally, while client code can choose suspending or ordinary blocking contracts.
 
 The starter polls event rows from your database, dispatches them to typed handlers, applies retry rules, and moves exhausted events to `DEAD_LETTER`.
 
 ## Installation
 
-Gradle Kotlin DSL:
+Choose exactly one starter.
+
+R2DBC:
 
 ```kotlin
 dependencies {
@@ -17,7 +19,15 @@ dependencies {
 }
 ```
 
-The consuming application must also provide a configured R2DBC connection and a `ReactiveTransactionManager`.
+JDBC:
+
+```kotlin
+dependencies {
+    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-jdbc:3.0.0")
+}
+```
+
+Auto-configuration selects the repository adapter from the infrastructure supplied by the chosen starter: `R2dbcEntityTemplate` plus `ReactiveTransactionManager`, or `JdbcAggregateOperations` plus `PlatformTransactionManager`. A client-provided `EventRepository` overrides both defaults.
 
 ## Project Modules
 
@@ -25,15 +35,18 @@ This repository follows the Spring Boot starter layout:
 
 | Module | Purpose |
 | --- | --- |
-| `transactional-inbox-outbox-core` | Database-independent event contracts, processing pipeline, retry policy, and core auto-configuration. |
-| `transactional-inbox-outbox-autoconfigure-r2dbc` | R2DBC repository implementation and its auto-configuration. |
-| `transactional-inbox-outbox-starter-r2dbc` | R2DBC starter that brings `core`, the R2DBC adapter, and required dependencies. |
+| `transactional-inbox-outbox-core` | Database-independent contracts, processing pipeline, retry policy, and configuration model. |
+| `transactional-inbox-outbox-r2dbc` | R2DBC repository adapter. |
+| `transactional-inbox-outbox-jdbc` | JDBC repository adapter. |
+| `transactional-inbox-outbox-autoconfigure` | Shared conditional auto-configuration that resolves the available adapter. |
+| `transactional-inbox-outbox-starter-r2dbc` | R2DBC dependency starter. |
+| `transactional-inbox-outbox-starter-jdbc` | JDBC dependency starter. |
 
 ## Quick Start
 
 ### 1. Define an event entity
 
-Each event type is a Spring Data R2DBC entity. Extend `BaseEvent` to inherit the lifecycle columns and add only your domain-specific fields.
+Each event type is a Spring Data Relational entity. Extend `BaseEvent` to inherit the lifecycle columns and add only your domain-specific fields. The same model contract works with Spring Data JDBC and R2DBC.
 
 ```kotlin
 import com.fnasibov.transactional.inbox.outbox.core.api.model.BaseEvent
@@ -107,6 +120,27 @@ class PaymentEventHandler(
 ```
 
 Multiple handlers can support the same event type. They are executed sequentially for a consumed event; if any handler fails, the event is marked as failed according to the retry policy.
+
+Clients that do not use coroutines can implement `BlockingEventHandler` instead:
+
+```kotlin
+@Component
+class PaymentEventHandler : BlockingEventHandler<PaymentEvent> {
+    override fun supportedEventType() = PaymentEvent::class.java
+
+    override fun handle(event: PaymentEvent) {
+        paymentPublisher.publish(event)
+    }
+
+    override fun handleDeadLetter(event: PaymentEvent, error: Throwable) {
+        logger.error("Payment event moved to dead letter", error)
+    }
+}
+```
+
+Blocking handlers are moved to `Dispatchers.IO` before execution, so they do not block the processor's default coroutine dispatcher.
+
+The same option exists for infrastructure overrides: implement `BlockingEventRepository` when a custom repository is required without coroutine methods. It is automatically adapted and takes precedence over both default adapters.
 
 ### 4. Enable the starter
 
@@ -250,6 +284,8 @@ class PaymentFetchStrategy(
 
 Custom strategies are responsible for their own locking, transaction boundaries, and status transitions.
 
+For a non-suspending implementation use `BlockingFetchBatchStrategy<E>` with an ordinary `fun fetchBatch(): List<E>`. It is adapted to the same processing pipeline and executed on `Dispatchers.IO`.
+
 ## Processing Flow
 
 ```text
@@ -290,7 +326,8 @@ When Spring Boot health contributor support is on the classpath, the starter als
 
 ## Notes
 
-- The starter is database-backed and does not require an external broker.
+- Both starters are database-backed and do not require an external broker.
+- Add one of `starter-jdbc` or `starter-r2dbc`; the shared auto-configuration backs off when the required infrastructure beans are absent or when the client supplies `EventRepository`.
 - Default polling uses `FOR UPDATE SKIP LOCKED`, so it is intended for databases that support this locking style.
 - A handler is required for an event type to be polled because pollers are created from registered handler event types.
 - Extend `BaseEvent` for the standard lifecycle columns, or implement `Event` directly when you need a fully custom model.

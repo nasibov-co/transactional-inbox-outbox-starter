@@ -1,6 +1,6 @@
 # Transactional Inbox/Outbox Demo
 
-Spring Boot demo module for `transactional-inbox-outbox-starter-r2dbc`.
+Spring Boot R2DBC demo module for `transactional-inbox-outbox-starter-r2dbc`.
 
 The demo uses PostgreSQL over R2DBC, creates one `PENDING` event from `data.sql`, and handles it with `DemoEventHandler`.
 

@@ -7,7 +7,7 @@ import com.fnasibov.transactional.inbox.outbox.core.api.model.Event
  * for a specific event type.
  *
  * By default, the starter uses the built-in polling implementation
- * provided by `BaseEventRepository`. Registering a custom strategy
+ * provided by the selected JDBC or R2DBC repository. Registering a custom strategy
  * allows overriding batch selection and locking behavior
  * for a particular event class.
  *
