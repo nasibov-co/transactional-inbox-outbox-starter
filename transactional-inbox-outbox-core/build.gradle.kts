@@ -22,6 +22,7 @@ dependencies {
     api("jakarta.validation:jakarta.validation-api")
 
     implementation("io.github.oshai:kotlin-logging-jvm:8.0.02")
+    implementation(kotlin("reflect"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
     kapt("org.springframework.boot:spring-boot-configuration-processor")
 

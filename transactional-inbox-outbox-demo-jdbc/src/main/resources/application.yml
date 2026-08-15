@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: transactional-inbox-outbox-demo-jdbc
+  datasource:
+    url: jdbc:postgresql://localhost:5432/transactional_demo_jdbc
+    username: demo
+    password: demo
+  sql:
+    init:
+      mode: always
+
+server:
+  port: 8081
+
+transactional:
+  enabled: true
+  polling:
+    active-interval: 250ms
+    max-idle-interval: 2s
+    batch-size: 5
+  processing:
+    concurrency: 1
+    shutdown-timeout: 5s
+  retry:
+    max-attempts: 3

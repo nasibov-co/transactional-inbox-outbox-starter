@@ -20,6 +20,12 @@ import org.springframework.transaction.support.TransactionTemplate
 
 @AutoConfiguration(
     after = [TransactionalInboxOutboxInfrastructureAutoConfiguration::class],
+    afterName = [
+        "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+        "org.springframework.boot.jdbc.autoconfigure.JdbcTemplateAutoConfiguration",
+        "org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration",
+        "org.springframework.boot.data.jdbc.autoconfigure.DataJdbcRepositoriesAutoConfiguration"
+    ],
     before = [TransactionalInboxOutboxProcessorAutoConfiguration::class]
 )
 @ConditionalOnProperty("transactional.enabled", havingValue = "true")

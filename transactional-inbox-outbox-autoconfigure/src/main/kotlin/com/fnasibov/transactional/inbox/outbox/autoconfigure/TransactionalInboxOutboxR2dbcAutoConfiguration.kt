@@ -19,6 +19,11 @@ import org.springframework.transaction.reactive.TransactionalOperator
 
 @AutoConfiguration(
     after = [TransactionalInboxOutboxInfrastructureAutoConfiguration::class],
+    afterName = [
+        "org.springframework.boot.r2dbc.autoconfigure.R2dbcAutoConfiguration",
+        "org.springframework.boot.r2dbc.autoconfigure.R2dbcTransactionManagerAutoConfiguration",
+        "org.springframework.boot.data.r2dbc.autoconfigure.DataR2dbcAutoConfiguration"
+    ],
     before = [TransactionalInboxOutboxProcessorAutoConfiguration::class]
 )
 @ConditionalOnProperty("transactional.enabled", havingValue = "true")

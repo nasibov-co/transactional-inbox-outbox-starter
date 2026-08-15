@@ -41,6 +41,8 @@ This repository follows the Spring Boot starter layout:
 | `transactional-inbox-outbox-autoconfigure` | Shared conditional auto-configuration that resolves the available adapter. |
 | `transactional-inbox-outbox-starter-r2dbc` | R2DBC dependency starter. |
 | `transactional-inbox-outbox-starter-jdbc` | JDBC dependency starter. |
+| `transactional-inbox-outbox-demo` | Reactive R2DBC demo application. |
+| `transactional-inbox-outbox-demo-jdbc` | Blocking JDBC demo application. |
 
 ## Quick Start
 
@@ -151,9 +153,11 @@ transactional:
 
 When enabled, auto-configuration creates the repository, processor, coroutine scope, and lifecycle starter. Processing starts with the Spring application.
 
-## Demo
+## Demos
 
-A standalone Spring Boot demo application is available in `transactional-inbox-outbox-demo`.
+Two standalone Spring Boot demo applications are available: the reactive R2DBC demo in `transactional-inbox-outbox-demo` and the blocking JDBC demo in `transactional-inbox-outbox-demo-jdbc`.
+
+### R2DBC
 
 Start PostgreSQL:
 
@@ -179,6 +183,28 @@ Create a new pending demo event:
 curl -X POST http://localhost:8080/demo-events \
   -H "Content-Type: application/json" \
   -d '{"payload":"Hello from HTTP","priority":25}'
+```
+
+### JDBC
+
+Start its PostgreSQL instance on port `5434`:
+
+```shell
+docker compose -f transactional-inbox-outbox-demo-jdbc/docker-compose.yml up -d
+```
+
+Run the blocking demo on port `8081`:
+
+```powershell
+.\gradlew.bat :transactional-inbox-outbox-demo-jdbc:bootRun
+```
+
+Create a new pending JDBC event:
+
+```shell
+curl -X POST http://localhost:8081/demo-events \
+  -H "Content-Type: application/json" \
+  -d '{"payload":"Hello from JDBC HTTP","priority":25}'
 ```
 
 ## Configuration

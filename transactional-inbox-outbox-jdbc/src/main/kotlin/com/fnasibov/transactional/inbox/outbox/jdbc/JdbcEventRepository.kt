@@ -41,8 +41,11 @@ class JdbcEventRepository(
             .addValue("pendingStatus", EventStatus.PENDING.name)
             .addValue("processingStatus", EventStatus.PROCESSING.name)
             .addValue("failedStatus", EventStatus.FAILED.name)
-            .addValue("processingStaleBefore", EventPollingQueries.processingStaleBefore(now, properties))
-            .addValue("now", now)
+            .addValue(
+                "processingStaleBefore",
+                EventPollingQueries.processingStaleBefore(now, properties).toOffsetDateTime()
+            )
+            .addValue("now", now.toOffsetDateTime())
             .addValue("limit", properties.polling.batchSize)
 
         return transactionTemplate.execute {
@@ -59,7 +62,7 @@ class JdbcEventRepository(
                 EventPollingQueries.updateStatusSql(tableName),
                 MapSqlParameterSource()
                     .addValue("processingStatus", EventStatus.PROCESSING.name)
-                    .addValue("now", now)
+                    .addValue("now", now.toOffsetDateTime())
                     .addValue("ids", ids)
             )
             aggregates.findAllById(ids, eventType).toList()
@@ -89,7 +92,10 @@ class JdbcEventRepository(
                 .addValue("id", event.id)
 
             val nextRetryUpdate = if (nextStatus == EventStatus.FAILED) {
-                parameters.addValue("nextRetryAt", now.plus(nextRetryDelay(nextRetryCount, retry)))
+                parameters.addValue(
+                    "nextRetryAt",
+                    now.plus(nextRetryDelay(nextRetryCount, retry)).toOffsetDateTime()
+                )
                 "next_retry_at = :nextRetryAt"
             } else {
                 "next_retry_at = NULL"
@@ -122,7 +128,7 @@ class JdbcEventRepository(
                 """.trimIndent(),
                 MapSqlParameterSource()
                     .addValue("status", status.name)
-                    .addValue("updatedAt", ZonedDateTime.now())
+                    .addValue("updatedAt", ZonedDateTime.now().toOffsetDateTime())
                     .addValue("id", event.id)
             )
         }
