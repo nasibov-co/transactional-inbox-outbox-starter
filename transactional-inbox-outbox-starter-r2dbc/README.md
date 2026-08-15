@@ -6,7 +6,7 @@ It brings the database-independent `transactional-inbox-outbox-core`, the R2DBC 
 
 ```kotlin
 dependencies {
-    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-r2dbc:3.0.0")
+    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-r2dbc:4.0.0")
 }
 ```
 

@@ -8,7 +8,7 @@ Use this module when implementing a custom `EventRepository` adapter or wiring t
 
 ```kotlin
 dependencies {
-    implementation("io.github.fnasibov:transactional-inbox-outbox-core:3.0.0")
+    implementation("io.github.fnasibov:transactional-inbox-outbox-core:4.0.0")
 }
 ```
 
