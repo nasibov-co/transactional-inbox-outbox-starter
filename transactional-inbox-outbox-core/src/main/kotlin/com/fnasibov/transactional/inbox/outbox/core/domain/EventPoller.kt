@@ -5,16 +5,16 @@ import com.fnasibov.transactional.inbox.outbox.core.configuration.TransactionalP
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 import java.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Poller responsible for continuously fetching events of a specific type
- * from the repository and pushing them into a processing channel.
+ * from the repository and handing them to the processing pipeline.
  *
  * The poller implements adaptive polling behavior:
  * - fast polling when events are available
@@ -24,12 +24,15 @@ import java.time.Duration
  * Each poller runs in its own coroutine and operates independently per event type.
  * This allows horizontal scalability and isolation between event streams.
  *
- * The fetched events are sent to a shared [Channel] for downstream processing.
+ * Every fetched batch is handed to [deliver], which forwards it downstream. The
+ * delivery policy preserves the batch boundaries produced by the fetch layer: batch
+ * handled event types are delivered as one unit, while individually handled events are
+ * sent one by one to the processing channel.
  */
 class EventPoller(
     private val eventType: Class<out Event>,
     private val repository: EventRepository,
-    private val channel: Channel<Event>,
+    private val deliver: suspend (List<Event>) -> Unit,
     private val properties: TransactionalProperties,
     private val scope: CoroutineScope,
     private val metrics: EventProcessingMetrics?
@@ -41,8 +44,8 @@ class EventPoller(
      * Starts the polling loop in a dedicated coroutine.
      *
      * The loop runs until the coroutine scope is cancelled.
-     * It continuously fetches batches of events and sends them
-     * to the processing channel.
+     * It continuously fetches batches of events and delivers them
+     * to the processing pipeline via [deliver].
      *
      * Backoff strategy:
      * - uses `activeInterval` when events are being processed
@@ -60,7 +63,7 @@ class EventPoller(
                     metrics?.recordFetched(batch.size)
 
                     if (batch.isEmpty()) {
-                        delay(currentDelay.toMillis())
+                        delay(currentDelay.toMillis().milliseconds)
                         currentDelay = nextDelay(
                             currentDelay,
                             properties.polling.maxIdleInterval
@@ -70,9 +73,7 @@ class EventPoller(
 
                     currentDelay = properties.polling.activeInterval
 
-                    batch.forEach { event ->
-                        channel.send(event)
-                    }
+                    deliver(batch)
 
                 } catch (e: CancellationException) {
                     throw e
@@ -82,7 +83,7 @@ class EventPoller(
                         "Polling failed for ${eventType.simpleName}"
                     }
 
-                    delay(currentDelay.toMillis())
+                    delay(currentDelay.toMillis().milliseconds)
 
                     currentDelay = nextDelay(
                         currentDelay,

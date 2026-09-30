@@ -4,6 +4,8 @@ import com.fnasibov.transactional.inbox.outbox.core.api.FetchBatchStrategy
 import com.fnasibov.transactional.inbox.outbox.core.api.model.Event
 import com.fnasibov.transactional.inbox.outbox.core.api.model.EventStatus
 import com.fnasibov.transactional.inbox.outbox.core.configuration.TransactionalProperties
+import com.fnasibov.transactional.inbox.outbox.core.domain.BatchKeyDescriptor
+import com.fnasibov.transactional.inbox.outbox.core.domain.BatchKeySupport
 import com.fnasibov.transactional.inbox.outbox.core.domain.EventRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
@@ -30,7 +32,12 @@ class JdbcEventRepository(
     override suspend fun <E : Event> fetchBatch(eventType: Class<E>): List<E> {
         val strategy = strategiesByEventType[eventType] as? FetchBatchStrategy<E>
         return strategy?.fetchBatch() ?: runInterruptible(Dispatchers.IO) {
-            defaultFetchBatch(eventType)
+            val batchKey = BatchKeySupport.batchKeyDescriptor(eventType)
+            if (batchKey != null) {
+                batchKeyFetchBatch(eventType, batchKey)
+            } else {
+                defaultFetchBatch(eventType)
+            }
         }
     }
 
@@ -66,6 +73,103 @@ class JdbcEventRepository(
                     .addValue("ids", ids)
             )
             aggregates.findAllById(ids, eventType).toList()
+        } ?: emptyList()
+    }
+
+    /**
+     * Batch-key fetch implementation for event models annotated with `@BatchKey`.
+     *
+     * Within a single transaction this method:
+     * - picks the batch key of the oldest event that is eligible and not claimed
+     *   by another instance,
+     * - locks the non-terminal rows of that key group with `FOR UPDATE` so that
+     *   concurrent fetch transactions for the same key are serialized,
+     * - re-selects up to `batchSize` eligible events of the key, refusing the
+     *   fetch while the key holds an active claim,
+     * - marks the returned events as `PROCESSING`, and
+     * - returns a single-key batch capped at `batchSize`.
+     *
+     * The committed `PROCESSING` rows act as a durable claim on the key that
+     * outlives the fetch transaction: other fetches skip keys with such rows
+     * until the whole batch leaves `PROCESSING` or its `last_attempt_at` grows
+     * older than the processing stale timeout (crash recovery, lease expiry).
+     */
+    private fun <E : Event> batchKeyFetchBatch(
+        eventType: Class<E>,
+        batchKey: BatchKeyDescriptor
+    ): List<E> {
+        val now = ZonedDateTime.now()
+        val tableName = getTableName(eventType)
+
+        fun pollingParameters(): MapSqlParameterSource = MapSqlParameterSource()
+            .addValue("pendingStatus", EventStatus.PENDING.name)
+            .addValue("processingStatus", EventStatus.PROCESSING.name)
+            .addValue("failedStatus", EventStatus.FAILED.name)
+            .addValue("processedStatus", EventStatus.PROCESSED.name)
+            .addValue("deadLetterStatus", EventStatus.DEAD_LETTER.name)
+            .addValue(
+                "processingStaleBefore",
+                EventPollingQueries.processingStaleBefore(now, properties).toOffsetDateTime()
+            )
+            .addValue("now", now.toOffsetDateTime())
+
+        return transactionTemplate.execute {
+            val keyValues = jdbc.queryForList(
+                EventPollingQueries.selectBatchKeySql(tableName, batchKey.columnName),
+                pollingParameters(),
+                Any::class.java
+            )
+            if (keyValues.isEmpty()) {
+                return@execute emptyList<E>()
+            }
+            val pickedKey = keyValues.first()
+            val keyIsNull = pickedKey == null
+
+            fun keyParameters(): MapSqlParameterSource =
+                if (keyIsNull) pollingParameters()
+                else pollingParameters().addValue("batchKey", pickedKey)
+
+            jdbc.queryForList(
+                EventPollingQueries.lockBatchKeyGroupSql(
+                    tableName,
+                    batchKey.columnName,
+                    keyIsNull
+                ),
+                keyParameters(),
+                UUID::class.java
+            )
+
+            val ids = jdbc.queryForList(
+                EventPollingQueries.selectIdsForBatchKeySql(
+                    tableName,
+                    batchKey.columnName,
+                    keyIsNull
+                ),
+                keyParameters().addValue("limit", properties.polling.batchSize),
+                UUID::class.java
+            )
+            if (ids.isEmpty()) {
+                return@execute emptyList<E>()
+            }
+
+            val events = aggregates.findAllById(ids, eventType).toList()
+            val batch = BatchKeySupport.selectKeyGroup(
+                events,
+                properties.polling.batchSize,
+                batchKey
+            )
+            if (batch.isEmpty()) {
+                return@execute emptyList<E>()
+            }
+
+            jdbc.update(
+                EventPollingQueries.updateStatusSql(tableName),
+                MapSqlParameterSource()
+                    .addValue("processingStatus", EventStatus.PROCESSING.name)
+                    .addValue("now", now.toOffsetDateTime())
+                    .addValue("ids", batch.map { it.id })
+            )
+            batch
         } ?: emptyList()
     }
 

@@ -1,5 +1,6 @@
 package com.fnasibov.transactional.inbox.outbox.autoconfigure
 
+import com.fnasibov.transactional.inbox.outbox.core.api.BatchEventHandler
 import com.fnasibov.transactional.inbox.outbox.core.api.BlockingEventHandler
 import com.fnasibov.transactional.inbox.outbox.core.api.EventHandler
 import com.fnasibov.transactional.inbox.outbox.core.api.asSuspendingEventHandler
@@ -31,6 +32,7 @@ class TransactionalInboxOutboxProcessorAutoConfiguration {
     fun eventProcessor(
         handlers: List<EventHandler<out Event>>,
         blockingHandlers: List<BlockingEventHandler<out Event>>,
+        batchHandlers: List<BatchEventHandler<out Event>>,
         transactionalProperties: TransactionalProperties,
         repository: EventRepository,
         @Qualifier("transactionalCoroutineScope")
@@ -44,9 +46,13 @@ class TransactionalInboxOutboxProcessorAutoConfiguration {
         val handlerMap = allHandlers.groupBy { handler ->
             handler.supportedEventType()
         }
+        val batchHandlerMap = batchHandlers.groupBy { handler ->
+            handler.supportedEventType()
+        }
 
         return EventProcessor(
             handlers = handlerMap,
+            batchHandlers = batchHandlerMap,
             repository = repository,
             properties = transactionalProperties,
             scope = transactionalCoroutineScope,

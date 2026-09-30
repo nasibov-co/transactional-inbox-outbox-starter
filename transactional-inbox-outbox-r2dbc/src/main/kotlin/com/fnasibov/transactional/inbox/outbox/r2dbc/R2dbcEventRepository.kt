@@ -4,6 +4,8 @@ import com.fnasibov.transactional.inbox.outbox.core.api.FetchBatchStrategy
 import com.fnasibov.transactional.inbox.outbox.core.api.model.Event
 import com.fnasibov.transactional.inbox.outbox.core.api.model.EventStatus
 import com.fnasibov.transactional.inbox.outbox.core.configuration.TransactionalProperties
+import com.fnasibov.transactional.inbox.outbox.core.domain.BatchKeyDescriptor
+import com.fnasibov.transactional.inbox.outbox.core.domain.BatchKeySupport
 import com.fnasibov.transactional.inbox.outbox.core.domain.EventRepository
 import kotlinx.coroutines.reactive.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingle
@@ -18,6 +20,15 @@ import java.time.Duration
 import java.time.ZonedDateTime
 import java.util.*
 import kotlin.math.pow
+
+/**
+ * Identity marker mapped in place of a SQL `NULL` batch key value.
+ *
+ * The row mapper of the reactive client cannot produce nullable results, so a
+ * `NULL` key column is mapped to this marker and translated back into the
+ * `IS NULL` query shape when the key group is locked and selected.
+ */
+internal val nullBatchKeyMarker = Any()
 
 /**
  * Default implementation of [EventRepository] responsible for managing
@@ -67,7 +78,12 @@ class R2dbcEventRepository(
         if (strategy != null) {
             return strategy.fetchBatch()
         }
-        return defaultFetchBatch(eventType)
+        val batchKey = BatchKeySupport.batchKeyDescriptor(eventType)
+        return if (batchKey != null) {
+            batchKeyFetchBatch(eventType, batchKey)
+        } else {
+            defaultFetchBatch(eventType)
+        }
     }
 
     /**
@@ -126,6 +142,128 @@ class R2dbcEventRepository(
                             )
                         )
                         .collectList()
+                }
+        }.awaitSingle()
+    }
+
+    /**
+     * Batch-key fetch implementation for event models annotated with `@BatchKey`.
+     *
+     * Within a single reactive transaction this method:
+     * - picks the batch key of the oldest event that is eligible and not claimed
+     *   by another instance,
+     * - locks the non-terminal rows of that key group with `FOR UPDATE` so that
+     *   concurrent fetch transactions for the same key are serialized,
+     * - re-selects up to `batchSize` eligible events of the key, refusing the
+     *   fetch while the key holds an active claim,
+     * - marks the returned events as `PROCESSING`, and
+     * - returns a single-key batch capped at `batchSize`.
+     *
+     * The committed `PROCESSING` rows act as a durable claim on the key that
+     * outlives the fetch transaction: other fetches skip keys with such rows
+     * until the whole batch leaves `PROCESSING` or its `last_attempt_at` grows
+     * older than the processing stale timeout (crash recovery, lease expiry).
+     */
+    private suspend fun <E : Event> batchKeyFetchBatch(
+        eventType: Class<E>,
+        batchKey: BatchKeyDescriptor
+    ): List<E> {
+        val now = ZonedDateTime.now()
+        val processingStaleBefore = EventPollingQueries.processingStaleBefore(now, properties)
+        val tableName = getTableName(eventType)
+        val batchSize = properties.polling.batchSize
+
+        return transactionalOperator.execute {
+            template.databaseClient.sql(
+                EventPollingQueries.selectBatchKeySql(tableName, batchKey.columnName)
+            )
+                .bind("pendingStatus", EventStatus.PENDING.name)
+                .bind("processingStatus", EventStatus.PROCESSING.name)
+                .bind("failedStatus", EventStatus.FAILED.name)
+                .bind("processingStaleBefore", processingStaleBefore)
+                .bind("now", now)
+                .map { row, _ -> row.get(batchKey.columnName) ?: nullBatchKeyMarker }
+                .all()
+                .collectList()
+                .flatMap { keyValues ->
+
+                    if (keyValues.isEmpty()) {
+                        return@flatMap Mono.just(emptyList<E>())
+                    }
+
+                    val pickedKey = keyValues.first()
+                    val keyIsNull = pickedKey === nullBatchKeyMarker
+
+                    var lock = template.databaseClient.sql(
+                        EventPollingQueries.lockBatchKeyGroupSql(
+                            tableName,
+                            batchKey.columnName,
+                            keyIsNull
+                        )
+                    )
+                        .bind("processedStatus", EventStatus.PROCESSED.name)
+                        .bind("deadLetterStatus", EventStatus.DEAD_LETTER.name)
+                    if (!keyIsNull) {
+                        lock = lock.bind("batchKey", pickedKey)
+                    }
+
+                    lock.map { row, _ -> row.get("id", UUID::class.java)!! }
+                        .all()
+                        .collectList()
+                        .flatMap {
+
+                            var select = template.databaseClient.sql(
+                                EventPollingQueries.selectIdsForBatchKeySql(
+                                    tableName,
+                                    batchKey.columnName,
+                                    keyIsNull
+                                )
+                            )
+                                .bind("pendingStatus", EventStatus.PENDING.name)
+                                .bind("processingStatus", EventStatus.PROCESSING.name)
+                                .bind("failedStatus", EventStatus.FAILED.name)
+                                .bind("processingStaleBefore", processingStaleBefore)
+                                .bind("now", now)
+                                .bind("limit", batchSize)
+                            if (!keyIsNull) {
+                                select = select.bind("batchKey", pickedKey)
+                            }
+
+                            select.map { row, _ -> row.get("id", UUID::class.java)!! }
+                                .all()
+                                .collectList()
+                                .flatMap { ids ->
+
+                                    if (ids.isEmpty()) {
+                                        return@flatMap Mono.just(emptyList<E>())
+                                    }
+
+                                    template.select(
+                                        Query.query(where("id").`in`(ids)),
+                                        eventType
+                                    )
+                                        .collectList()
+                                        .flatMap { events ->
+                                            val batch = BatchKeySupport.selectKeyGroup(
+                                                events,
+                                                batchSize,
+                                                batchKey
+                                            )
+                                            if (batch.isEmpty()) {
+                                                Mono.just(emptyList<E>())
+                                            } else {
+                                                template.databaseClient.sql(
+                                                    EventPollingQueries.updateStatusSql(tableName)
+                                                )
+                                                    .bind("now", now)
+                                                    .bind("ids", batch.map { it.id })
+                                                    .fetch()
+                                                    .rowsUpdated()
+                                                    .then(Mono.just(batch))
+                                            }
+                                        }
+                                }
+                        }
                 }
         }.awaitSingle()
     }

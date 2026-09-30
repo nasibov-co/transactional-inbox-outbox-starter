@@ -313,13 +313,126 @@ Custom strategies are responsible for their own locking, transaction boundaries,
 
 For a non-suspending implementation use `BlockingFetchBatchStrategy<E>` with an ordinary `fun fetchBatch(): List<E>`. It is adapted to the same processing pipeline and executed on `Dispatchers.IO`.
 
+## Batch Processing
+
+By default a handler is invoked once per event. When related events must be processed together, mark exactly one persisted property of the event model with `@BatchKey` and register a `BatchEventHandler` instead of a regular handler.
+
+### Mark the batch key
+
+Apply `@BatchKey` to exactly one persisted property of the event model. Events stored with the same key value form one group; the default fetch path selects a group in batches bounded by `transactional.polling.batch-size`, so a large group may take several fetches to drain.
+
+```kotlin
+import com.fnasibov.transactional.inbox.outbox.core.api.model.BatchKey
+import com.fnasibov.transactional.inbox.outbox.core.api.model.BaseEvent
+import org.springframework.data.relational.core.mapping.Table
+
+@Table("batch_demo_events")
+data class BatchDemoEvent(
+    @BatchKey
+    val batchKey: String,
+    val payload: String
+) : BaseEvent()
+```
+
+The backing database column is derived from the annotated member name using snake case: `batchKey` maps to `batch_key`, `accountId` maps to `account_id`. When the physical column does not follow that convention, set the column name explicitly:
+
+```kotlin
+@BatchKey(columnName = "tenant_key")
+val tenant: String
+```
+
+A model must not declare more than one `@BatchKey` member. Event models without a `@BatchKey` member keep the default fetch behavior described in Custom Batch Fetching above.
+
+### Implement a batch handler
+
+Register a `BatchEventHandler` bean for the event type. It receives a whole fetched batch in a single `handleBatch` invocation and must return a `BatchResult` with exactly one outcome for every event id in that batch:
+
+```kotlin
+import com.fnasibov.transactional.inbox.outbox.core.api.BatchEventHandler
+import com.fnasibov.transactional.inbox.outbox.core.api.model.BatchEventOutcome
+import com.fnasibov.transactional.inbox.outbox.core.api.model.BatchResult
+import org.springframework.stereotype.Component
+import java.util.UUID
+
+@Component
+class BatchDemoEventHandler(
+    private val publisher: BatchPublisher
+) : BatchEventHandler<BatchDemoEvent> {
+
+    override fun supportedEventType(): Class<BatchDemoEvent> =
+        BatchDemoEvent::class.java
+
+    override suspend fun handleBatch(events: List<BatchDemoEvent>): BatchResult {
+        // Send the whole batch to the downstream system and learn which
+        // events it accepted.
+        val acceptedIds: Set<UUID> = publisher.publish(events)
+
+        // The result must contain exactly one outcome for every event id of
+        // the batch: no id omitted and no id outside the batch.
+        // PROCESSED acknowledges an event and excludes it from later retries.
+        // RETRY routes it through the standard retry lifecycle.
+        return BatchResult.of(
+            events.associate { event ->
+                val id = event.id!!
+                val outcome = if (id in acceptedIds) {
+                    BatchEventOutcome.PROCESSED
+                } else {
+                    BatchEventOutcome.RETRY
+                }
+                id to outcome
+            }
+        )
+    }
+
+    override suspend fun handleDeadLetter(events: List<BatchDemoEvent>, error: Throwable) {
+        // Called only for events whose retry limit is exhausted.
+    }
+}
+```
+
+Outcome rules:
+
+- `BatchEventOutcome.PROCESSED` marks the event as processed; it is never retried again.
+- `BatchEventOutcome.RETRY` routes the event through the standard failure lifecycle: it becomes `FAILED` with retry backoff and moves to `DEAD_LETTER` once the retry limit is exhausted.
+- `BatchResult.of(mapOf(...))` builds mixed outcomes, while `BatchResult.allProcessed(events)` and `BatchResult.allRetried(events)` cover whole batches.
+- The result must contain exactly the ids of the processed batch. An omitted id or an id outside the batch rejects the whole batch, which is then reported as failed and follows the retry lifecycle, so no event can be left stuck in `PROCESSING`.
+- When `handleBatch` throws, every event of the batch is retried, exactly as if each had been reported for retry.
+- `handleDeadLetter` is invoked with exactly the events whose retry limit is exhausted, together with the failure that caused or justified the retry.
+
+An event type must be registered with either `EventHandler` beans or `BatchEventHandler` beans, never both. Mixing the two styles for the same event type is rejected at startup. Event types handled with regular `EventHandler` beans are unaffected and continue to be processed one event at a time.
+
+### How batches are formed
+
+With a `@BatchKey` member, the default fetch path selects one key group per fetch: the eligible events of a single key value, ordered by creation time and capped by `transactional.polling.batch-size`. The fetched batch boundaries are preserved through the pipeline, so one fetched batch reaches exactly one `handleBatch` invocation. While a fetched batch is being processed, other fetches cannot claim events with the same key; events with different keys remain independently fetchable.
+
+If a custom `FetchBatchStrategy` is registered for the event type, it is used instead of the default fetch path and the `@BatchKey` grouping is not applied by the starter. Such strategies are responsible for their own grouping, locking, and status transitions.
+
+### Limitations
+
+- The `@BatchKey` member must be persisted to a column that exists in the event table and that is written for stored rows. The default fetch path groups by that column; a `null` column value is treated as its own group, and a column that does not exist fails at fetch time.
+- There is no active heartbeat. The key claim is derived from rows in `PROCESSING` whose `last_attempt_at` is newer than `transactional.polling.processing-stale-timeout`. A handler that runs longer than that timeout may have its batch treated as stale and reclaimed by another fetch.
+- A missing `@BatchKey` does not guarantee homogeneous batches. Without the annotation the default fetch path returns up to `transactional.polling.batch-size` eligible events ordered by creation time, and one batch may contain events with different key values. Only models with `@BatchKey` get single-key batches from the built-in fetch path.
+- Custom fetch strategies bypass the `@BatchKey` fetch path entirely and must implement equivalent grouping and locking themselves.
+
+### Try it in the demo
+
+The R2DBC demo already registers a batch event and handler:
+
+- `transactional-inbox-outbox-demo/src/main/kotlin/.../BatchDemoEvent.kt` — the model with `@BatchKey val batchKey`.
+- `transactional-inbox-outbox-demo/src/main/kotlin/.../BatchDemoEventHandler.kt` — the `BatchEventHandler` that logs each batch and returns `BatchResult.allProcessed`.
+- `transactional-inbox-outbox-demo/src/main/resources/schema.sql` — the `batch_demo_events` table with its `batch_key` column.
+- `transactional-inbox-outbox-demo/src/main/resources/data.sql` — three `PENDING` rows that share `batch_key = 'account-42'`.
+
+The demo sets `spring.sql.init.mode: always` and a `transactional.polling.batch-size` of `5`, so starting the demo seeds those three rows and fetches them as one batch. The handler logs a line such as `Handled batch of 3 event(s) for batchKey=account-42 ...`, showing that all three events arrived in a single `handleBatch` call.
+
 ## Processing Flow
 
 ```text
 Database -> EventPoller -> Event type channel -> EventWorker -> EventHandler(s)
+                                              \-> BatchEventWorker -> BatchEventHandler(s)
 ```
 
-For each registered event type, the starter starts a poller, a dedicated coroutine channel, and worker coroutines for that type. If an item in `transactional.processing.event-types` matches the event class by fully qualified or simple name, its `concurrency` controls that type's worker count; otherwise the starter falls back to `transactional.processing.concurrency`.
+For each registered event type, the starter starts a poller, a dedicated coroutine channel, and worker coroutines for that type. Regular event types dispatch one event per `EventWorker` to `EventHandler` beans; types registered with `BatchEventHandler` beans dispatch a fetched batch per `BatchEventWorker` to `handleBatch`. If an item in `transactional.processing.event-types` matches the event class by fully qualified or simple name, its `concurrency` controls that type's worker count; otherwise the starter falls back to `transactional.processing.concurrency`.
 
 Lifecycle statuses:
 
