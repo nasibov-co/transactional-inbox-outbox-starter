@@ -16,7 +16,7 @@ R2DBC:
 
 ```kotlin
 dependencies {
-    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-r2dbc:4.0.0")
+    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-r2dbc:5.1.0")
 }
 ```
 
@@ -24,7 +24,7 @@ JDBC:
 
 ```kotlin
 dependencies {
-    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-jdbc:4.0.0")
+    implementation("io.github.fnasibov:transactional-inbox-outbox-starter-jdbc:5.1.0")
 }
 ```
 
