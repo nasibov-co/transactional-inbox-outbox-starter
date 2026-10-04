@@ -42,9 +42,8 @@ class EventProcessor(
     private val repository: EventRepository,
     private val properties: TransactionalProperties,
     private val scope: CoroutineScope,
-    private val metrics: EventProcessingMetrics?
+    private val metrics: EventProcessingMetrics?,
 ) {
-
     private val started = AtomicBoolean(false)
     private val pollerJobs = mutableListOf<Job>()
     private val workerJobs = mutableListOf<Job>()
@@ -82,32 +81,35 @@ class EventProcessor(
              * Capacity is configured via `transactional.polling.channel-capacity`.
              * Overflow strategy is set to SUSPEND to ensure backpressure.
              */
-            val processingChannel = Channel<Event>(
-                capacity = properties.polling.channelCapacity,
-                onBufferOverflow = BufferOverflow.SUSPEND
-            )
+            val processingChannel =
+                Channel<Event>(
+                    capacity = properties.polling.channelCapacity,
+                    onBufferOverflow = BufferOverflow.SUSPEND,
+                )
 
             channels += processingChannel
 
-            pollerJobs += EventPoller(
-                eventType = eventType,
-                repository = repository,
-                deliver = { batch ->
-                    batch.forEach { event -> processingChannel.send(event) }
-                },
-                properties = properties,
-                scope = scope,
-                metrics = metrics
-            ).start()
+            pollerJobs +=
+                EventPoller(
+                    eventType = eventType,
+                    repository = repository,
+                    deliver = { batch ->
+                        batch.forEach { event -> processingChannel.send(event) }
+                    },
+                    properties = properties,
+                    scope = scope,
+                    metrics = metrics,
+                ).start()
 
-            workerJobs += EventWorker(
-                handlers = handlers,
-                repository = repository,
-                concurrency = properties.processing.concurrencyFor(eventType),
-                channel = processingChannel,
-                scope = scope,
-                metrics = metrics
-            ).start()
+            workerJobs +=
+                EventWorker(
+                    handlers = handlers,
+                    repository = repository,
+                    concurrency = properties.processing.concurrencyFor(eventType),
+                    channel = processingChannel,
+                    scope = scope,
+                    metrics = metrics,
+                ).start()
         }
 
         batchHandlers.keys.distinct().forEach { eventType ->
@@ -115,36 +117,40 @@ class EventProcessor(
              * Batch handled event types keep the batch boundaries produced by the
              * fetch layer: one channel element is one whole fetched batch.
              */
-            val processingChannel = Channel<List<Event>>(
-                capacity = properties.polling.channelCapacity,
-                onBufferOverflow = BufferOverflow.SUSPEND
-            )
+            val processingChannel =
+                Channel<List<Event>>(
+                    capacity = properties.polling.channelCapacity,
+                    onBufferOverflow = BufferOverflow.SUSPEND,
+                )
 
             channels += processingChannel
 
-            pollerJobs += EventPoller(
-                eventType = eventType,
-                repository = repository,
-                deliver = { batch -> processingChannel.send(batch) },
-                properties = properties,
-                scope = scope,
-                metrics = metrics
-            ).start()
+            pollerJobs +=
+                EventPoller(
+                    eventType = eventType,
+                    repository = repository,
+                    deliver = { batch -> processingChannel.send(batch) },
+                    properties = properties,
+                    scope = scope,
+                    metrics = metrics,
+                ).start()
 
-            workerJobs += BatchEventWorker(
-                batchHandlers = batchHandlers,
-                repository = repository,
-                concurrency = properties.processing.concurrencyFor(eventType),
-                channel = processingChannel,
-                scope = scope,
-                metrics = metrics
-            ).start()
+            workerJobs +=
+                BatchEventWorker(
+                    batchHandlers = batchHandlers,
+                    repository = repository,
+                    concurrency = properties.processing.concurrencyFor(eventType),
+                    channel = processingChannel,
+                    scope = scope,
+                    metrics = metrics,
+                ).start()
         }
     }
 
-    fun stop() = runBlocking {
-        stopGracefully()
-    }
+    fun stop() =
+        runBlocking {
+            stopGracefully()
+        }
 
     suspend fun stopGracefully() {
         if (!started.compareAndSet(true, false)) {
@@ -154,9 +160,14 @@ class EventProcessor(
         pollerJobs.forEach { it.cancelAndJoin() }
         channels.forEach { it.close() }
 
-        val drained = withTimeoutOrNull(properties.processing.shutdownTimeout.toMillis().milliseconds) {
-            workerJobs.joinAll()
-        } != null
+        val drained =
+            withTimeoutOrNull(
+                properties.processing.shutdownTimeout
+                    .toMillis()
+                    .milliseconds,
+            ) {
+                workerJobs.joinAll()
+            } != null
 
         if (!drained) {
             workerJobs.forEach { it.cancelAndJoin() }

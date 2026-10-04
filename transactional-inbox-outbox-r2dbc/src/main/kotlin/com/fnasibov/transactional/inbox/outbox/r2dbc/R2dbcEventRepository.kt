@@ -54,9 +54,8 @@ class R2dbcEventRepository(
     private val template: R2dbcEntityTemplate,
     private val properties: TransactionalProperties,
     private val transactionalOperator: TransactionalOperator,
-    private val strategiesByEventType: Map<Class<out Event>, FetchBatchStrategy<out Event>>
+    private val strategiesByEventType: Map<Class<out Event>, FetchBatchStrategy<out Event>>,
 ) : EventRepository {
-
     /**
      * Fetches a batch of events for processing.
      *
@@ -100,10 +99,11 @@ class R2dbcEventRepository(
      */
     private suspend fun <E : Event> defaultFetchBatch(eventType: Class<E>): List<E> {
         val now = ZonedDateTime.now()
-        val processingStaleBefore = EventPollingQueries.processingStaleBefore(
-            now,
-            properties
-        )
+        val processingStaleBefore =
+            EventPollingQueries.processingStaleBefore(
+                now,
+                properties,
+            )
 
         val tableName = getTableName(eventType)
         val batchSize = properties.polling.batchSize
@@ -111,39 +111,40 @@ class R2dbcEventRepository(
         val selectIdsSql = EventPollingQueries.selectIdsSql(tableName)
         val updateStatusSql = EventPollingQueries.updateStatusSql(tableName)
 
-        return transactionalOperator.execute {
-            template.databaseClient.sql(selectIdsSql)
-                .bind("pendingStatus", EventStatus.PENDING.name)
-                .bind("processingStatus", EventStatus.PROCESSING.name)
-                .bind("failedStatus", EventStatus.FAILED.name)
-                .bind("processingStaleBefore", processingStaleBefore)
-                .bind("now", now)
-                .bind("limit", batchSize)
-                .map { row, _ ->
-                    row.get("id", UUID::class.java)!!
-                }
-                .all()
-                .collectList()
-                .flatMap { ids ->
+        return transactionalOperator
+            .execute {
+                template.databaseClient
+                    .sql(selectIdsSql)
+                    .bind("pendingStatus", EventStatus.PENDING.name)
+                    .bind("processingStatus", EventStatus.PROCESSING.name)
+                    .bind("failedStatus", EventStatus.FAILED.name)
+                    .bind("processingStaleBefore", processingStaleBefore)
+                    .bind("now", now)
+                    .bind("limit", batchSize)
+                    .map { row, _ ->
+                        row.get("id", UUID::class.java)!!
+                    }.all()
+                    .collectList()
+                    .flatMap { ids ->
 
-                    if (ids.isEmpty()) {
-                        return@flatMap Mono.just(emptyList())
+                        if (ids.isEmpty()) {
+                            return@flatMap Mono.just(emptyList())
+                        }
+
+                        template.databaseClient
+                            .sql(updateStatusSql)
+                            .bind("now", now)
+                            .bind("ids", ids)
+                            .fetch()
+                            .rowsUpdated()
+                            .thenMany(
+                                template.select(
+                                    Query.query(where("id").`in`(ids)),
+                                    eventType,
+                                ),
+                            ).collectList()
                     }
-
-                    template.databaseClient.sql(updateStatusSql)
-                        .bind("now", now)
-                        .bind("ids", ids)
-                        .fetch()
-                        .rowsUpdated()
-                        .thenMany(
-                            template.select(
-                                Query.query(where("id").`in`(ids)),
-                                eventType
-                            )
-                        )
-                        .collectList()
-                }
-        }.awaitSingle()
+            }.awaitSingle()
     }
 
     /**
@@ -166,106 +167,111 @@ class R2dbcEventRepository(
      */
     private suspend fun <E : Event> batchKeyFetchBatch(
         eventType: Class<E>,
-        batchKey: BatchKeyDescriptor
+        batchKey: BatchKeyDescriptor,
     ): List<E> {
         val now = ZonedDateTime.now()
         val processingStaleBefore = EventPollingQueries.processingStaleBefore(now, properties)
         val tableName = getTableName(eventType)
         val batchSize = properties.polling.batchSize
 
-        return transactionalOperator.execute {
-            template.databaseClient.sql(
-                EventPollingQueries.selectBatchKeySql(tableName, batchKey.columnName)
-            )
-                .bind("pendingStatus", EventStatus.PENDING.name)
-                .bind("processingStatus", EventStatus.PROCESSING.name)
-                .bind("failedStatus", EventStatus.FAILED.name)
-                .bind("processingStaleBefore", processingStaleBefore)
-                .bind("now", now)
-                .map { row, _ -> row.get(batchKey.columnName) ?: nullBatchKeyMarker }
-                .all()
-                .collectList()
-                .flatMap { keyValues ->
+        return transactionalOperator
+            .execute {
+                template.databaseClient
+                    .sql(
+                        EventPollingQueries.selectBatchKeySql(tableName, batchKey.columnName),
+                    ).bind("pendingStatus", EventStatus.PENDING.name)
+                    .bind("processingStatus", EventStatus.PROCESSING.name)
+                    .bind("failedStatus", EventStatus.FAILED.name)
+                    .bind("processingStaleBefore", processingStaleBefore)
+                    .bind("now", now)
+                    .map { row, _ -> row.get(batchKey.columnName) ?: nullBatchKeyMarker }
+                    .all()
+                    .collectList()
+                    .flatMap { keyValues ->
 
-                    if (keyValues.isEmpty()) {
-                        return@flatMap Mono.just(emptyList<E>())
-                    }
-
-                    val pickedKey = keyValues.first()
-                    val keyIsNull = pickedKey === nullBatchKeyMarker
-
-                    var lock = template.databaseClient.sql(
-                        EventPollingQueries.lockBatchKeyGroupSql(
-                            tableName,
-                            batchKey.columnName,
-                            keyIsNull
-                        )
-                    )
-                        .bind("processedStatus", EventStatus.PROCESSED.name)
-                        .bind("deadLetterStatus", EventStatus.DEAD_LETTER.name)
-                    if (!keyIsNull) {
-                        lock = lock.bind("batchKey", pickedKey)
-                    }
-
-                    lock.map { row, _ -> row.get("id", UUID::class.java)!! }
-                        .all()
-                        .collectList()
-                        .flatMap {
-
-                            var select = template.databaseClient.sql(
-                                EventPollingQueries.selectIdsForBatchKeySql(
-                                    tableName,
-                                    batchKey.columnName,
-                                    keyIsNull
-                                )
-                            )
-                                .bind("pendingStatus", EventStatus.PENDING.name)
-                                .bind("processingStatus", EventStatus.PROCESSING.name)
-                                .bind("failedStatus", EventStatus.FAILED.name)
-                                .bind("processingStaleBefore", processingStaleBefore)
-                                .bind("now", now)
-                                .bind("limit", batchSize)
-                            if (!keyIsNull) {
-                                select = select.bind("batchKey", pickedKey)
-                            }
-
-                            select.map { row, _ -> row.get("id", UUID::class.java)!! }
-                                .all()
-                                .collectList()
-                                .flatMap { ids ->
-
-                                    if (ids.isEmpty()) {
-                                        return@flatMap Mono.just(emptyList<E>())
-                                    }
-
-                                    template.select(
-                                        Query.query(where("id").`in`(ids)),
-                                        eventType
-                                    )
-                                        .collectList()
-                                        .flatMap { events ->
-                                            val batch = BatchKeySupport.selectKeyGroup(
-                                                events,
-                                                batchSize,
-                                                batchKey
-                                            )
-                                            if (batch.isEmpty()) {
-                                                Mono.just(emptyList<E>())
-                                            } else {
-                                                template.databaseClient.sql(
-                                                    EventPollingQueries.updateStatusSql(tableName)
-                                                )
-                                                    .bind("now", now)
-                                                    .bind("ids", batch.map { it.id })
-                                                    .fetch()
-                                                    .rowsUpdated()
-                                                    .then(Mono.just(batch))
-                                            }
-                                        }
-                                }
+                        if (keyValues.isEmpty()) {
+                            return@flatMap Mono.just(emptyList<E>())
                         }
-                }
-        }.awaitSingle()
+
+                        val pickedKey = keyValues.first()
+                        val keyIsNull = pickedKey === nullBatchKeyMarker
+
+                        var lock =
+                            template.databaseClient
+                                .sql(
+                                    EventPollingQueries.lockBatchKeyGroupSql(
+                                        tableName,
+                                        batchKey.columnName,
+                                        keyIsNull,
+                                    ),
+                                ).bind("processedStatus", EventStatus.PROCESSED.name)
+                                .bind("deadLetterStatus", EventStatus.DEAD_LETTER.name)
+                        if (!keyIsNull) {
+                            lock = lock.bind("batchKey", pickedKey)
+                        }
+
+                        lock
+                            .map { row, _ -> row.get("id", UUID::class.java)!! }
+                            .all()
+                            .collectList()
+                            .flatMap {
+                                var select =
+                                    template.databaseClient
+                                        .sql(
+                                            EventPollingQueries.selectIdsForBatchKeySql(
+                                                tableName,
+                                                batchKey.columnName,
+                                                keyIsNull,
+                                            ),
+                                        ).bind("pendingStatus", EventStatus.PENDING.name)
+                                        .bind("processingStatus", EventStatus.PROCESSING.name)
+                                        .bind("failedStatus", EventStatus.FAILED.name)
+                                        .bind("processingStaleBefore", processingStaleBefore)
+                                        .bind("now", now)
+                                        .bind("limit", batchSize)
+                                if (!keyIsNull) {
+                                    select = select.bind("batchKey", pickedKey)
+                                }
+
+                                select
+                                    .map { row, _ -> row.get("id", UUID::class.java)!! }
+                                    .all()
+                                    .collectList()
+                                    .flatMap { ids ->
+
+                                        if (ids.isEmpty()) {
+                                            return@flatMap Mono.just(emptyList<E>())
+                                        }
+
+                                        template
+                                            .select(
+                                                Query.query(where("id").`in`(ids)),
+                                                eventType,
+                                            ).collectList()
+                                            .flatMap { events ->
+                                                val batch =
+                                                    BatchKeySupport.selectKeyGroup(
+                                                        events,
+                                                        batchSize,
+                                                        batchKey,
+                                                    )
+                                                if (batch.isEmpty()) {
+                                                    Mono.just(emptyList<E>())
+                                                } else {
+                                                    template.databaseClient
+                                                        .sql(
+                                                            EventPollingQueries.updateStatusSql(tableName),
+                                                        ).bind("now", now)
+                                                        .bind("ids", batch.map { it.id })
+                                                        .fetch()
+                                                        .rowsUpdated()
+                                                        .then(Mono.just(batch))
+                                                }
+                                            }
+                                    }
+                            }
+                    }
+            }.awaitSingle()
     }
 
     /**
@@ -276,19 +282,19 @@ class R2dbcEventRepository(
      *
      * @param event processed event
      */
-    override suspend fun <E : Event> markAsProcessed(
-        event: E
-    ) {
+    override suspend fun <E : Event> markAsProcessed(event: E) {
         val tableName = getTableName(event.javaClass)
-        val sql = """
+        val sql =
+            """
             UPDATE $tableName
             SET status = :status,
                 updated_at = :updatedAt,
                 next_retry_at = NULL
             WHERE id = :id
-        """.trimIndent()
+            """.trimIndent()
 
-        template.databaseClient.sql(sql)
+        template.databaseClient
+            .sql(sql)
             .bind("status", EventStatus.PROCESSED.name)
             .bind("updatedAt", ZonedDateTime.now())
             .bind("id", event.id)
@@ -305,20 +311,20 @@ class R2dbcEventRepository(
      *
      * @param event failed event
      */
-    override suspend fun <E : Event> markAsDeadLetter(
-        event: E
-    ) {
+    override suspend fun <E : Event> markAsDeadLetter(event: E) {
         val tableName = getTableName(event.javaClass)
 
-        val sql = """
+        val sql =
+            """
             UPDATE $tableName
             SET status = :status,
                 updated_at = :updatedAt,
                 next_retry_at = NULL
             WHERE id = :id
-        """.trimIndent()
+            """.trimIndent()
 
-        template.databaseClient.sql(sql)
+        template.databaseClient
+            .sql(sql)
             .bind("status", EventStatus.DEAD_LETTER.name)
             .bind("updatedAt", ZonedDateTime.now())
             .bind("id", event.id)
@@ -360,7 +366,8 @@ class R2dbcEventRepository(
                 "next_retry_at = NULL"
             }
 
-        val sql = """
+        val sql =
+            """
             UPDATE $tableName
             SET status = :status,
                 retry_count = :retryCount,
@@ -368,13 +375,15 @@ class R2dbcEventRepository(
                 updated_at = :now,
                 $nextRetryAtUpdate
             WHERE id = :id
-        """.trimIndent()
+            """.trimIndent()
 
-        var statement = template.databaseClient.sql(sql)
-            .bind("status", nextStatus.name)
-            .bind("retryCount", nextRetryCount)
-            .bind("now", now)
-            .bind("id", event.id)
+        var statement =
+            template.databaseClient
+                .sql(sql)
+                .bind("status", nextStatus.name)
+                .bind("retryCount", nextRetryCount)
+                .bind("now", now)
+                .bind("id", event.id)
 
         if (nextStatus == EventStatus.FAILED) {
             statement = statement.bind("nextRetryAt", nextRetryAt)
@@ -390,7 +399,7 @@ class R2dbcEventRepository(
 
     private fun nextRetryDelay(
         retryCount: Int,
-        retry: TransactionalProperties.ResolvedRetry
+        retry: TransactionalProperties.ResolvedRetry,
     ): Duration {
         val multiplier = retry.multiplier.pow((retryCount - 1).coerceAtLeast(0))
         val delayMillis = (retry.initialDelay.toMillis() * multiplier).toLong()
@@ -405,13 +414,11 @@ class R2dbcEventRepository(
      *
      * @throws IllegalStateException if table mapping is missing
      */
-    private fun <E : Event> getTableName(
-        eventType: Class<E>
-    ): String {
-
-        val annotation = eventType.getAnnotation(
-            Table::class.java
-        ) ?: error("Event ${eventType.name} must be annotated with @Table")
+    private fun <E : Event> getTableName(eventType: Class<E>): String {
+        val annotation =
+            eventType.getAnnotation(
+                Table::class.java,
+            ) ?: error("Event ${eventType.name} must be annotated with @Table")
 
         return annotation.value.takeIf { it.isNotBlank() }
             ?: error("@Table value must not be empty for event ${eventType.name}")

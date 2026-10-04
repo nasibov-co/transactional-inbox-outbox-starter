@@ -25,5 +25,5 @@ abstract class BaseEvent(
     override var updatedAt: ZonedDateTime? = null,
     override var retryCount: Int = 0,
     override var lastAttemptAt: ZonedDateTime? = null,
-    override var nextRetryAt: ZonedDateTime? = null
+    override var nextRetryAt: ZonedDateTime? = null,
 ) : Event

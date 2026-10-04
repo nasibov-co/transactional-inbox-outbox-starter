@@ -22,11 +22,10 @@ import org.springframework.context.annotation.Bean
 @ConditionalOnProperty(
     "transactional.enabled",
     havingValue = "true",
-    matchIfMissing = false
+    matchIfMissing = false,
 )
 @ConditionalOnBean(EventRepository::class)
 class TransactionalInboxOutboxProcessorAutoConfiguration {
-
     @Bean
     @ConditionalOnMissingBean
     fun eventProcessor(
@@ -37,18 +36,22 @@ class TransactionalInboxOutboxProcessorAutoConfiguration {
         repository: EventRepository,
         @Qualifier("transactionalCoroutineScope")
         transactionalCoroutineScope: CoroutineScope,
-        eventProcessingMetrics: ObjectProvider<EventProcessingMetrics>
+        eventProcessingMetrics: ObjectProvider<EventProcessingMetrics>,
     ): EventProcessor {
-        val allHandlers = handlers + blockingHandlers.map { handler ->
-            @Suppress("UNCHECKED_CAST")
-            (handler as BlockingEventHandler<Event>).asSuspendingEventHandler()
-        }
-        val handlerMap = allHandlers.groupBy { handler ->
-            handler.supportedEventType()
-        }
-        val batchHandlerMap = batchHandlers.groupBy { handler ->
-            handler.supportedEventType()
-        }
+        val allHandlers =
+            handlers +
+                blockingHandlers.map { handler ->
+                    @Suppress("UNCHECKED_CAST")
+                    (handler as BlockingEventHandler<Event>).asSuspendingEventHandler()
+                }
+        val handlerMap =
+            allHandlers.groupBy { handler ->
+                handler.supportedEventType()
+            }
+        val batchHandlerMap =
+            batchHandlers.groupBy { handler ->
+                handler.supportedEventType()
+            }
 
         return EventProcessor(
             handlers = handlerMap,
@@ -56,7 +59,7 @@ class TransactionalInboxOutboxProcessorAutoConfiguration {
             repository = repository,
             properties = transactionalProperties,
             scope = transactionalCoroutineScope,
-            metrics = eventProcessingMetrics.ifAvailable
+            metrics = eventProcessingMetrics.ifAvailable,
         )
     }
 }

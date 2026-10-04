@@ -25,9 +25,8 @@ class JdbcEventRepository(
     private val aggregates: JdbcAggregateOperations,
     private val transactionTemplate: TransactionTemplate,
     private val properties: TransactionalProperties,
-    private val strategiesByEventType: Map<Class<out Event>, FetchBatchStrategy<out Event>>
+    private val strategiesByEventType: Map<Class<out Event>, FetchBatchStrategy<out Event>>,
 ) : EventRepository {
-
     @Suppress("UNCHECKED_CAST")
     override suspend fun <E : Event> fetchBatch(eventType: Class<E>): List<E> {
         val strategy = strategiesByEventType[eventType] as? FetchBatchStrategy<E>
@@ -44,23 +43,24 @@ class JdbcEventRepository(
     private fun <E : Event> defaultFetchBatch(eventType: Class<E>): List<E> {
         val now = ZonedDateTime.now()
         val tableName = getTableName(eventType)
-        val selectParameters = MapSqlParameterSource()
-            .addValue("pendingStatus", EventStatus.PENDING.name)
-            .addValue("processingStatus", EventStatus.PROCESSING.name)
-            .addValue("failedStatus", EventStatus.FAILED.name)
-            .addValue(
-                "processingStaleBefore",
-                EventPollingQueries.processingStaleBefore(now, properties).toOffsetDateTime()
-            )
-            .addValue("now", now.toOffsetDateTime())
-            .addValue("limit", properties.polling.batchSize)
+        val selectParameters =
+            MapSqlParameterSource()
+                .addValue("pendingStatus", EventStatus.PENDING.name)
+                .addValue("processingStatus", EventStatus.PROCESSING.name)
+                .addValue("failedStatus", EventStatus.FAILED.name)
+                .addValue(
+                    "processingStaleBefore",
+                    EventPollingQueries.processingStaleBefore(now, properties).toOffsetDateTime(),
+                ).addValue("now", now.toOffsetDateTime())
+                .addValue("limit", properties.polling.batchSize)
 
         return transactionTemplate.execute {
-            val ids = jdbc.queryForList(
-                EventPollingQueries.selectIdsSql(tableName),
-                selectParameters,
-                UUID::class.java
-            )
+            val ids =
+                jdbc.queryForList(
+                    EventPollingQueries.selectIdsSql(tableName),
+                    selectParameters,
+                    UUID::class.java,
+                )
             if (ids.isEmpty()) {
                 return@execute emptyList()
             }
@@ -70,7 +70,7 @@ class JdbcEventRepository(
                 MapSqlParameterSource()
                     .addValue("processingStatus", EventStatus.PROCESSING.name)
                     .addValue("now", now.toOffsetDateTime())
-                    .addValue("ids", ids)
+                    .addValue("ids", ids),
             )
             aggregates.findAllById(ids, eventType).toList()
         } ?: emptyList()
@@ -96,29 +96,30 @@ class JdbcEventRepository(
      */
     private fun <E : Event> batchKeyFetchBatch(
         eventType: Class<E>,
-        batchKey: BatchKeyDescriptor
+        batchKey: BatchKeyDescriptor,
     ): List<E> {
         val now = ZonedDateTime.now()
         val tableName = getTableName(eventType)
 
-        fun pollingParameters(): MapSqlParameterSource = MapSqlParameterSource()
-            .addValue("pendingStatus", EventStatus.PENDING.name)
-            .addValue("processingStatus", EventStatus.PROCESSING.name)
-            .addValue("failedStatus", EventStatus.FAILED.name)
-            .addValue("processedStatus", EventStatus.PROCESSED.name)
-            .addValue("deadLetterStatus", EventStatus.DEAD_LETTER.name)
-            .addValue(
-                "processingStaleBefore",
-                EventPollingQueries.processingStaleBefore(now, properties).toOffsetDateTime()
-            )
-            .addValue("now", now.toOffsetDateTime())
+        fun pollingParameters(): MapSqlParameterSource =
+            MapSqlParameterSource()
+                .addValue("pendingStatus", EventStatus.PENDING.name)
+                .addValue("processingStatus", EventStatus.PROCESSING.name)
+                .addValue("failedStatus", EventStatus.FAILED.name)
+                .addValue("processedStatus", EventStatus.PROCESSED.name)
+                .addValue("deadLetterStatus", EventStatus.DEAD_LETTER.name)
+                .addValue(
+                    "processingStaleBefore",
+                    EventPollingQueries.processingStaleBefore(now, properties).toOffsetDateTime(),
+                ).addValue("now", now.toOffsetDateTime())
 
         return transactionTemplate.execute {
-            val keyValues = jdbc.queryForList(
-                EventPollingQueries.selectBatchKeySql(tableName, batchKey.columnName),
-                pollingParameters(),
-                Any::class.java
-            )
+            val keyValues =
+                jdbc.queryForList(
+                    EventPollingQueries.selectBatchKeySql(tableName, batchKey.columnName),
+                    pollingParameters(),
+                    Any::class.java,
+                )
             if (keyValues.isEmpty()) {
                 return@execute emptyList<E>()
             }
@@ -126,38 +127,43 @@ class JdbcEventRepository(
             val keyIsNull = pickedKey == null
 
             fun keyParameters(): MapSqlParameterSource =
-                if (keyIsNull) pollingParameters()
-                else pollingParameters().addValue("batchKey", pickedKey)
+                if (keyIsNull) {
+                    pollingParameters()
+                } else {
+                    pollingParameters().addValue("batchKey", pickedKey)
+                }
 
             jdbc.queryForList(
                 EventPollingQueries.lockBatchKeyGroupSql(
                     tableName,
                     batchKey.columnName,
-                    keyIsNull
+                    keyIsNull,
                 ),
                 keyParameters(),
-                UUID::class.java
+                UUID::class.java,
             )
 
-            val ids = jdbc.queryForList(
-                EventPollingQueries.selectIdsForBatchKeySql(
-                    tableName,
-                    batchKey.columnName,
-                    keyIsNull
-                ),
-                keyParameters().addValue("limit", properties.polling.batchSize),
-                UUID::class.java
-            )
+            val ids =
+                jdbc.queryForList(
+                    EventPollingQueries.selectIdsForBatchKeySql(
+                        tableName,
+                        batchKey.columnName,
+                        keyIsNull,
+                    ),
+                    keyParameters().addValue("limit", properties.polling.batchSize),
+                    UUID::class.java,
+                )
             if (ids.isEmpty()) {
                 return@execute emptyList<E>()
             }
 
             val events = aggregates.findAllById(ids, eventType).toList()
-            val batch = BatchKeySupport.selectKeyGroup(
-                events,
-                properties.polling.batchSize,
-                batchKey
-            )
+            val batch =
+                BatchKeySupport.selectKeyGroup(
+                    events,
+                    properties.polling.batchSize,
+                    batchKey,
+                )
             if (batch.isEmpty()) {
                 return@execute emptyList<E>()
             }
@@ -167,80 +173,84 @@ class JdbcEventRepository(
                 MapSqlParameterSource()
                     .addValue("processingStatus", EventStatus.PROCESSING.name)
                     .addValue("now", now.toOffsetDateTime())
-                    .addValue("ids", batch.map { it.id })
+                    .addValue("ids", batch.map { it.id }),
             )
             batch
         } ?: emptyList()
     }
 
-    override suspend fun <E : Event> markAsProcessed(event: E) =
-        updateStatus(event, EventStatus.PROCESSED)
+    override suspend fun <E : Event> markAsProcessed(event: E) = updateStatus(event, EventStatus.PROCESSED)
 
-    override suspend fun <E : Event> markAsDeadLetter(event: E) =
-        updateStatus(event, EventStatus.DEAD_LETTER)
+    override suspend fun <E : Event> markAsDeadLetter(event: E) = updateStatus(event, EventStatus.DEAD_LETTER)
 
     override suspend fun <E : Event> markAsFailed(event: E): EventStatus =
         runInterruptible(Dispatchers.IO) {
             val retry = properties.processing.retryFor(event.javaClass, properties.retry)
             val nextRetryCount = event.retryCount + 1
             val now = ZonedDateTime.now()
-            val nextStatus = if (nextRetryCount < retry.maxAttempts) {
-                EventStatus.FAILED
-            } else {
-                EventStatus.DEAD_LETTER
-            }
-            val parameters = MapSqlParameterSource()
-                .addValue("status", nextStatus.name)
-                .addValue("retryCount", nextRetryCount)
-                .addValue("now", now.toOffsetDateTime())
-                .addValue("id", event.id)
+            val nextStatus =
+                if (nextRetryCount < retry.maxAttempts) {
+                    EventStatus.FAILED
+                } else {
+                    EventStatus.DEAD_LETTER
+                }
+            val parameters =
+                MapSqlParameterSource()
+                    .addValue("status", nextStatus.name)
+                    .addValue("retryCount", nextRetryCount)
+                    .addValue("now", now.toOffsetDateTime())
+                    .addValue("id", event.id)
 
-            val nextRetryUpdate = if (nextStatus == EventStatus.FAILED) {
-                parameters.addValue(
-                    "nextRetryAt",
-                    now.plus(nextRetryDelay(nextRetryCount, retry)).toOffsetDateTime()
-                )
-                "next_retry_at = :nextRetryAt"
-            } else {
-                "next_retry_at = NULL"
-            }
+            val nextRetryUpdate =
+                if (nextStatus == EventStatus.FAILED) {
+                    parameters.addValue(
+                        "nextRetryAt",
+                        now.plus(nextRetryDelay(nextRetryCount, retry)).toOffsetDateTime(),
+                    )
+                    "next_retry_at = :nextRetryAt"
+                } else {
+                    "next_retry_at = NULL"
+                }
 
             jdbc.update(
                 """
-                    UPDATE ${getTableName(event.javaClass)}
-                    SET status = :status,
-                        retry_count = :retryCount,
-                        last_attempt_at = :now,
-                        updated_at = :now,
-                        $nextRetryUpdate
-                    WHERE id = :id
+                UPDATE ${getTableName(event.javaClass)}
+                SET status = :status,
+                    retry_count = :retryCount,
+                    last_attempt_at = :now,
+                    updated_at = :now,
+                    $nextRetryUpdate
+                WHERE id = :id
                 """.trimIndent(),
-                parameters
+                parameters,
             )
             nextStatus
         }
 
-    private suspend fun <E : Event> updateStatus(event: E, status: EventStatus) {
+    private suspend fun <E : Event> updateStatus(
+        event: E,
+        status: EventStatus,
+    ) {
         runInterruptible(Dispatchers.IO) {
             jdbc.update(
                 """
-                    UPDATE ${getTableName(event.javaClass)}
-                    SET status = :status,
-                        updated_at = :updatedAt,
-                        next_retry_at = NULL
-                    WHERE id = :id
+                UPDATE ${getTableName(event.javaClass)}
+                SET status = :status,
+                    updated_at = :updatedAt,
+                    next_retry_at = NULL
+                WHERE id = :id
                 """.trimIndent(),
                 MapSqlParameterSource()
                     .addValue("status", status.name)
                     .addValue("updatedAt", ZonedDateTime.now().toOffsetDateTime())
-                    .addValue("id", event.id)
+                    .addValue("id", event.id),
             )
         }
     }
 
     private fun nextRetryDelay(
         retryCount: Int,
-        retry: TransactionalProperties.ResolvedRetry
+        retry: TransactionalProperties.ResolvedRetry,
     ): Duration {
         val multiplier = retry.multiplier.pow((retryCount - 1).coerceAtLeast(0))
         val delayMillis = (retry.initialDelay.toMillis() * multiplier).toLong()
@@ -248,8 +258,9 @@ class JdbcEventRepository(
     }
 
     private fun <E : Event> getTableName(eventType: Class<E>): String {
-        val annotation = eventType.getAnnotation(Table::class.java)
-            ?: error("Event ${eventType.name} must be annotated with @Table")
+        val annotation =
+            eventType.getAnnotation(Table::class.java)
+                ?: error("Event ${eventType.name} must be annotated with @Table")
         return annotation.value.takeIf { it.isNotBlank() }
             ?: error("@Table value must not be empty for event ${eventType.name}")
     }

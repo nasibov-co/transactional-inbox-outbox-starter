@@ -4,8 +4,8 @@ import com.fnasibov.transactional.inbox.outbox.core.configuration.TransactionalP
 import java.time.ZonedDateTime
 
 internal object EventPollingQueries {
-
-    fun selectIdsSql(tableName: String): String = """
+    fun selectIdsSql(tableName: String): String =
+        """
         SELECT id
         FROM $tableName
         WHERE status = :pendingStatus
@@ -24,20 +24,21 @@ internal object EventPollingQueries {
         ORDER BY created_at ASC
         LIMIT :limit
         FOR UPDATE SKIP LOCKED
-    """.trimIndent()
+        """.trimIndent()
 
-    fun updateStatusSql(tableName: String): String = """
+    fun updateStatusSql(tableName: String): String =
+        """
         UPDATE $tableName
         SET status = :processingStatus,
             last_attempt_at = :now,
             updated_at = :now,
             next_retry_at = NULL
         WHERE id IN (:ids)
-    """.trimIndent()
+        """.trimIndent()
 
     fun processingStaleBefore(
         now: ZonedDateTime,
-        properties: TransactionalProperties
+        properties: TransactionalProperties,
     ): ZonedDateTime = now.minus(properties.polling.processingStaleTimeout)
 
     /**
@@ -48,7 +49,11 @@ internal object EventPollingQueries {
      * `PROCESSING` whose last attempt is newer than the processing stale
      * timeout, i.e. a batch that another instance is still working on.
      */
-    fun selectBatchKeySql(tableName: String, keyColumn: String): String = """
+    fun selectBatchKeySql(
+        tableName: String,
+        keyColumn: String,
+    ): String =
+        """
         SELECT src.$keyColumn
         FROM $tableName src
         WHERE (
@@ -77,7 +82,7 @@ internal object EventPollingQueries {
         )
         ORDER BY src.created_at ASC
         LIMIT 1
-    """.trimIndent()
+        """.trimIndent()
 
     /**
      * Locks every non-terminal row of one batch key group with `FOR UPDATE`.
@@ -90,15 +95,16 @@ internal object EventPollingQueries {
     fun lockBatchKeyGroupSql(
         tableName: String,
         keyColumn: String,
-        keyIsNull: Boolean
-    ): String = """
+        keyIsNull: Boolean,
+    ): String =
+        """
         SELECT id
         FROM $tableName
         WHERE ${keyMatch(keyColumn, keyIsNull)}
         AND status <> :processedStatus
         AND status <> :deadLetterStatus
         FOR UPDATE
-    """.trimIndent()
+        """.trimIndent()
 
     /**
      * Selects the event ids of one batch key group to claim.
@@ -110,8 +116,9 @@ internal object EventPollingQueries {
     fun selectIdsForBatchKeySql(
         tableName: String,
         keyColumn: String,
-        keyIsNull: Boolean
-    ): String = """
+        keyIsNull: Boolean,
+    ): String =
+        """
         SELECT id
         FROM $tableName
         WHERE ${keyMatch(keyColumn, keyIsNull)}
@@ -140,13 +147,16 @@ internal object EventPollingQueries {
         )
         ORDER BY created_at ASC
         LIMIT :limit
-    """.trimIndent()
+        """.trimIndent()
 
     private fun keyMatch(
         keyColumn: String,
         keyIsNull: Boolean,
-        prefix: String = ""
+        prefix: String = "",
     ): String =
-        if (keyIsNull) "${prefix}$keyColumn IS NULL"
-        else "${prefix}$keyColumn = :batchKey"
+        if (keyIsNull) {
+            "${prefix}$keyColumn IS NULL"
+        } else {
+            "${prefix}$keyColumn = :batchKey"
+        }
 }

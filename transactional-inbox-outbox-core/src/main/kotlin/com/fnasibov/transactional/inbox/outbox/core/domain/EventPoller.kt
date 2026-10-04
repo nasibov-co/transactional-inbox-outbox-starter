@@ -8,8 +8,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.coroutines.cancellation.CancellationException
 import java.time.Duration
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -35,9 +35,8 @@ class EventPoller(
     private val deliver: suspend (List<Event>) -> Unit,
     private val properties: TransactionalProperties,
     private val scope: CoroutineScope,
-    private val metrics: EventProcessingMetrics?
+    private val metrics: EventProcessingMetrics?,
 ) {
-
     private val log = KotlinLogging.logger {}
 
     /**
@@ -54,7 +53,6 @@ class EventPoller(
      */
     fun start(): Job =
         scope.launch {
-
             var currentDelay = properties.polling.activeInterval
 
             while (isActive) {
@@ -64,20 +62,19 @@ class EventPoller(
 
                     if (batch.isEmpty()) {
                         delay(currentDelay.toMillis().milliseconds)
-                        currentDelay = nextDelay(
-                            currentDelay,
-                            properties.polling.maxIdleInterval
-                        )
+                        currentDelay =
+                            nextDelay(
+                                currentDelay,
+                                properties.polling.maxIdleInterval,
+                            )
                         continue
                     }
 
                     currentDelay = properties.polling.activeInterval
 
                     deliver(batch)
-
                 } catch (e: CancellationException) {
                     throw e
-
                 } catch (e: Exception) {
                     log.error(e) {
                         "Polling failed for ${eventType.simpleName}"
@@ -85,10 +82,11 @@ class EventPoller(
 
                     delay(currentDelay.toMillis().milliseconds)
 
-                    currentDelay = nextDelay(
-                        currentDelay,
-                        properties.polling.maxIdleInterval
-                    )
+                    currentDelay =
+                        nextDelay(
+                            currentDelay,
+                            properties.polling.maxIdleInterval,
+                        )
                 }
             }
         }
@@ -102,7 +100,7 @@ class EventPoller(
      */
     private fun nextDelay(
         current: Duration,
-        max: Duration
+        max: Duration,
     ): Duration {
         val next = current.multipliedBy(2)
         return if (next > max) max else next
