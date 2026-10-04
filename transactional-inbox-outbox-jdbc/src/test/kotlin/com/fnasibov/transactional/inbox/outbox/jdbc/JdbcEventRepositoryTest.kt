@@ -15,6 +15,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations
 import org.springframework.jdbc.core.namedparam.SqlParameterSource
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
+import java.time.OffsetDateTime
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -60,6 +61,27 @@ class JdbcEventRepositoryTest {
         assertEquals(EventStatus.DEAD_LETTER, status)
         assertEquals(EventStatus.DEAD_LETTER.name, parameters.captured.getValue("status"))
         assertEquals(true, sql.captured.contains("next_retry_at = NULL"))
+    }
+
+    @Test
+    fun `markAsDeadLetter sets dead letter status and clears scheduled retry`() = runBlocking {
+        val sql = slot<String>()
+        val parameters = slot<SqlParameterSource>()
+        val jdbc = mockk<NamedParameterJdbcOperations>()
+        every { jdbc.update(capture(sql), capture(parameters)) } returns 1
+        val repository = repository(jdbc = jdbc, properties = TransactionalProperties())
+        val event = TestEvent(retryCount = 0)
+
+        repository.markAsDeadLetter(event)
+
+        assertEquals(EventStatus.DEAD_LETTER.name, parameters.captured.getValue("status"))
+        assertEquals(event.id, parameters.captured.getValue("id"))
+        val updatedAt = parameters.captured.getValue("updatedAt") as OffsetDateTime
+        assertTrue(
+            updatedAt.isAfter(OffsetDateTime.now().minusMinutes(1)),
+            "updated_at must be refreshed when the event is dead lettered"
+        )
+        assertTrue(sql.captured.contains("next_retry_at = NULL"))
     }
 
     @Test

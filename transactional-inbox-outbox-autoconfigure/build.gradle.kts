@@ -30,6 +30,7 @@ dependencies {
     testImplementation(project(":transactional-inbox-outbox-r2dbc"))
     testImplementation(project(":transactional-inbox-outbox-jdbc"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-health")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:1.14.9")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")

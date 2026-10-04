@@ -4,9 +4,11 @@ import com.fnasibov.transactional.inbox.outbox.core.api.model.BaseEvent
 import com.fnasibov.transactional.inbox.outbox.core.api.model.BatchKey
 import com.fnasibov.transactional.inbox.outbox.core.api.model.EventStatus
 import com.fnasibov.transactional.inbox.outbox.core.configuration.TransactionalProperties
+import io.mockk.CapturingSlot
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.r2dbc.spi.Parameter
 import io.r2dbc.spi.Row
 import io.r2dbc.spi.RowMetadata
 import kotlinx.coroutines.runBlocking
@@ -23,6 +25,7 @@ import org.springframework.transaction.reactive.TransactionalOperator
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import java.time.Duration
+import java.time.ZonedDateTime
 import java.util.UUID
 import java.util.function.BiFunction
 import kotlin.test.assertEquals
@@ -86,6 +89,30 @@ class R2dbcEventRepositoryTest {
         assertEquals(EventStatus.DEAD_LETTER, status)
         assertEquals(EventStatus.DEAD_LETTER.name, bindings["status"])
         assertEquals(1, bindings["retryCount"])
+    }
+
+    @Test
+    fun `markAsDeadLetter sets dead letter status and clears scheduled retry`() {
+        val bindings = mutableMapOf<String, Any?>()
+        val sql = slot<String>()
+        val repository = repositoryWithProperties(
+            properties = TransactionalProperties(),
+            bindings = bindings,
+            sql = sql
+        )
+        val event = DeadLetterEvent(id = UUID.randomUUID())
+
+        runBlocking { repository.markAsDeadLetter(event) }
+
+        assertEquals(EventStatus.DEAD_LETTER.name, bindings["status"])
+        val boundId = (bindings["id"] as Parameter).value
+        assertEquals(event.id, boundId)
+        val updatedAt = bindings["updatedAt"] as ZonedDateTime
+        assertTrue(
+            updatedAt.isAfter(ZonedDateTime.now().minusMinutes(1)),
+            "updated_at must be refreshed when the event is dead lettered"
+        )
+        assertTrue(sql.captured.contains("next_retry_at = NULL"))
     }
 
     @Test
@@ -180,7 +207,8 @@ class R2dbcEventRepositoryTest {
 
     private fun repositoryWithProperties(
         properties: TransactionalProperties,
-        bindings: MutableMap<String, Any?>
+        bindings: MutableMap<String, Any?>,
+        sql: CapturingSlot<String> = slot()
     ): R2dbcEventRepository {
         val rowsUpdated = mockk<FetchSpec<Map<String, Any>>>()
         every { rowsUpdated.rowsUpdated() } returns Mono.just(1)
@@ -192,7 +220,6 @@ class R2dbcEventRepositoryTest {
         }
         every { statement.fetch() } returns rowsUpdated
 
-        val sql = slot<String>()
         val databaseClient = mockk<DatabaseClient>()
         every { databaseClient.sql(capture(sql)) } returns statement
 
@@ -224,6 +251,11 @@ class R2dbcEventRepositoryTest {
         id = id,
         retryCount = retryCount
     )
+
+    @Table("dead_letter_events")
+    private class DeadLetterEvent(
+        id: UUID
+    ) : BaseEvent(id = id)
 
     @Table("batch_key_events")
     private class BatchKeyEvent(
