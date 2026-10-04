@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [master]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -27,3 +29,15 @@ jobs:
 
       - name: Run tests
         run: ./gradlew test
+
+      - name: Generate aggregate code coverage report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: ./gradlew testCodeCoverageReport
+
+      - name: Upload aggregate code coverage report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-aggregate-report
+          path: build/reports/jacoco/testCodeCoverageReport
+          if-no-files-found: error
