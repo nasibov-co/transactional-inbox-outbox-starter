@@ -192,7 +192,7 @@ class JdbcEventRepository(
             val parameters = MapSqlParameterSource()
                 .addValue("status", nextStatus.name)
                 .addValue("retryCount", nextRetryCount)
-                .addValue("now", now)
+                .addValue("now", now.toOffsetDateTime())
                 .addValue("id", event.id)
 
             val nextRetryUpdate = if (nextStatus == EventStatus.FAILED) {
