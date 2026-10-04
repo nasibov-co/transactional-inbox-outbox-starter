@@ -23,6 +23,9 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
+      - name: Run tests
+        run: ./gradlew test
+
       - name: Build and publish
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.CENTRAL_USERNAME }}
