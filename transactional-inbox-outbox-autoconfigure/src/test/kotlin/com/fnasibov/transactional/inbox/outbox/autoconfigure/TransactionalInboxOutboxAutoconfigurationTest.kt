@@ -261,6 +261,7 @@ class TransactionalInboxOutboxAutoconfigurationTest {
                 TransactionalInboxOutboxAutoconfiguration::class.qualifiedName,
                 TransactionalInboxOutboxInfrastructureAutoConfiguration::class.qualifiedName,
                 TransactionalInboxOutboxR2dbcAutoConfiguration::class.qualifiedName,
+                TransactionalInboxOutboxJdbcConversionsAutoConfiguration::class.qualifiedName,
                 TransactionalInboxOutboxJdbcAutoConfiguration::class.qualifiedName,
                 TransactionalInboxOutboxProcessorAutoConfiguration::class.qualifiedName,
                 TransactionalInboxOutboxProcessorStarterAutoConfiguration::class.qualifiedName,
