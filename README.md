@@ -8,6 +8,32 @@ A lightweight Spring Boot starter for transactional inbox/outbox processing with
 
 The starter polls event rows from your database, dispatches them to typed handlers, applies retry rules, and moves exhausted events to `DEAD_LETTER`.
 
+## Contents
+
+- [Installation](#installation)
+- [Project Modules](#project-modules)
+- [Quick Start](#quick-start)
+  - [1. Define an event entity](#1-define-an-event-entity)
+  - [2. Create the table](#2-create-the-table)
+  - [3. Register a handler](#3-register-a-handler)
+  - [4. Enable the starter](#4-enable-the-starter)
+- [Demos](#demos)
+  - [R2DBC](#r2dbc)
+  - [JDBC](#jdbc)
+- [Configuration](#configuration)
+- [Custom Batch Fetching](#custom-batch-fetching)
+- [Batch Processing](#batch-processing)
+  - [Mark the batch key](#mark-the-batch-key)
+  - [Implement a batch handler](#implement-a-batch-handler)
+  - [Batch handling without a batch key](#batch-handling-without-a-batch-key)
+  - [How batches are formed](#how-batches-are-formed)
+  - [Limitations](#limitations)
+  - [Try it in the demo](#try-it-in-the-demo)
+- [Processing Flow](#processing-flow)
+- [Observability](#observability)
+- [Notes](#notes)
+- [Contact](#contact)
+
 ## Installation
 
 Choose exactly one starter.
@@ -315,7 +341,7 @@ For a non-suspending implementation use `BlockingFetchBatchStrategy<E>` with an 
 
 ## Batch Processing
 
-By default a handler is invoked once per event. When related events must be processed together, mark exactly one persisted property of the event model with `@BatchKey` and register a `BatchEventHandler` instead of a regular handler.
+By default a handler is invoked once per event. To process events together, register a `BatchEventHandler` instead of a regular handler. Optionally mark exactly one persisted property of the event model with `@BatchKey` to constrain a fetched batch to a single key value; without `@BatchKey` the handler still receives the whole fetched batch, which may mix key values (see [Batch handling without a batch key](#batch-handling-without-a-batch-key)).
 
 ### Mark the batch key
 
@@ -341,7 +367,7 @@ The backing database column is derived from the annotated member name using snak
 val tenant: String
 ```
 
-A model must not declare more than one `@BatchKey` member. Event models without a `@BatchKey` member keep the default fetch behavior described in Custom Batch Fetching above.
+A model must not declare more than one `@BatchKey` member. The annotation is optional for `BatchEventHandler`: event models without a `@BatchKey` member keep the default fetch behavior described in [Batch handling without a batch key](#batch-handling-without-a-batch-key) below and in Custom Batch Fetching above.
 
 ### Implement a batch handler
 
@@ -401,6 +427,14 @@ Outcome rules:
 
 An event type must be registered with either `EventHandler` beans or `BatchEventHandler` beans, never both. Mixing the two styles for the same event type is rejected at startup. Event types handled with regular `EventHandler` beans are unaffected and continue to be processed one event at a time.
 
+### Batch handling without a batch key
+
+`BatchEventHandler` does not require `@BatchKey`. When the event model has no `@BatchKey` member, register the `BatchEventHandler` for the event type exactly as shown above; the starter passes the entire fetched batch to a single `handleBatch` invocation, and the same `BatchResult` rules apply. This is useful when the downstream system accepts any mix of events of that type and the caller only needs one fetch's worth of work per call.
+
+The default fetch path returns up to `transactional.polling.batch-size` eligible events ordered by creation time. The configured size is a maximum, not a target: if fewer rows are eligible, the handler receives a smaller batch, so client code must never assume an exact batch size. To make one fetch carry more events, raise `transactional.polling.batch-size` (the default is `15`; for example `100`). Even with enough eligible events, batches can still be smaller — for instance while rows are still being written.
+
+Every event in the batch belongs to the same event type, the one the handler is registered for. Without `@BatchKey` the batch is not grouped by key, so it may contain events with different key values. Use this shape when a mixed batch of that event type is acceptable; add `@BatchKey` when all events of a single key value must stay together.
+
 ### How batches are formed
 
 With a `@BatchKey` member, the default fetch path selects one key group per fetch: the eligible events of a single key value, ordered by creation time and capped by `transactional.polling.batch-size`. The fetched batch boundaries are preserved through the pipeline, so one fetched batch reaches exactly one `handleBatch` invocation. While a fetched batch is being processed, other fetches cannot claim events with the same key; events with different keys remain independently fetchable.
@@ -411,7 +445,7 @@ If a custom `FetchBatchStrategy` is registered for the event type, it is used in
 
 - The `@BatchKey` member must be persisted to a column that exists in the event table and that is written for stored rows. The default fetch path groups by that column; a `null` column value is treated as its own group, and a column that does not exist fails at fetch time.
 - There is no active heartbeat. The key claim is derived from rows in `PROCESSING` whose `last_attempt_at` is newer than `transactional.polling.processing-stale-timeout`. A handler that runs longer than that timeout may have its batch treated as stale and reclaimed by another fetch.
-- A missing `@BatchKey` does not guarantee homogeneous batches. Without the annotation the default fetch path returns up to `transactional.polling.batch-size` eligible events ordered by creation time, and one batch may contain events with different key values. Only models with `@BatchKey` get single-key batches from the built-in fetch path.
+- A missing `@BatchKey` does not guarantee homogeneous batches. Without the annotation the default fetch path returns up to `transactional.polling.batch-size` eligible events ordered by creation time, and one batch may contain events with different key values. A `BatchEventHandler` registered without `@BatchKey` still receives that whole fetched batch in one `handleBatch` call. Only models with `@BatchKey` get single-key batches from the built-in fetch path.
 - Custom fetch strategies bypass the `@BatchKey` fetch path entirely and must implement equivalent grouping and locking themselves.
 
 ### Try it in the demo
