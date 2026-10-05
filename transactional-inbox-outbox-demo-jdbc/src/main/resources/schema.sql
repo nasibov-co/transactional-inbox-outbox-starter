@@ -12,3 +12,21 @@ CREATE TABLE IF NOT EXISTS jdbc_demo_events (
 
 CREATE INDEX IF NOT EXISTS idx_jdbc_demo_events_polling
     ON jdbc_demo_events (status, priority, next_retry_at, created_at);
+
+CREATE TABLE IF NOT EXISTS batch_jdbc_demo_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    status VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE,
+    retry_count INT NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMP WITH TIME ZONE,
+    next_retry_at TIMESTAMP WITH TIME ZONE,
+    batch_key VARCHAR(255) NOT NULL,
+    payload VARCHAR(255) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_batch_jdbc_demo_events_polling
+    ON batch_jdbc_demo_events (status, next_retry_at, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_batch_jdbc_demo_events_batch_key
+    ON batch_jdbc_demo_events (batch_key);
