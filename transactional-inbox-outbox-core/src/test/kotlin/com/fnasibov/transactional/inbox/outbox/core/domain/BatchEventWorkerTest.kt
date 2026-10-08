@@ -189,6 +189,76 @@ class BatchEventWorkerTest {
         assertTrue(repository.deadLettered.isEmpty())
     }
 
+    @Test
+    fun `incomplete result from one handler is not masked by another handler's complete result`() {
+        val acknowledged = TestBatchEvent()
+        val omitted = TestBatchEvent()
+        val incomplete = RecordingBatchHandler(
+            outcome = { events ->
+                BatchResult.of(mapOf(events.first().id!! to BatchEventOutcome.PROCESSED))
+            }
+        )
+        val complete = RecordingBatchHandler()
+        val repository = RecordingRepository()
+
+        runBatchWorker(
+            batches = listOf(listOf(acknowledged, omitted)),
+            batchHandlers = mapOf(TestBatchEvent::class.java to listOf(incomplete, complete)),
+            repository = repository
+        )
+
+        assertTrue(repository.processed.isEmpty())
+        assertEquals(listOf<Event>(acknowledged, omitted), repository.failed.toList())
+        assertTrue(repository.deadLettered.isEmpty())
+    }
+
+    @Test
+    fun `complete results from every handler are applied`() {
+        val first = TestBatchEvent()
+        val second = TestBatchEvent()
+        val handlerA = RecordingBatchHandler()
+        val handlerB = RecordingBatchHandler()
+        val repository = RecordingRepository()
+
+        runBatchWorker(
+            batches = listOf(listOf(first, second)),
+            batchHandlers = mapOf(TestBatchEvent::class.java to listOf(handlerA, handlerB)),
+            repository = repository
+        )
+
+        assertEquals(listOf<Event>(first, second), repository.processed.toList())
+        assertTrue(repository.failed.isEmpty())
+        assertTrue(repository.deadLettered.isEmpty())
+    }
+
+    @Test
+    fun `retry outcome from one handler wins over processed from another`() {
+        val retried = TestBatchEvent()
+        val processed = TestBatchEvent()
+        val allProcessed = RecordingBatchHandler()
+        val partialRetry = RecordingBatchHandler(
+            outcome = { events ->
+                BatchResult.of(
+                    mapOf(
+                        events.first().id!! to BatchEventOutcome.RETRY,
+                        events[1].id!! to BatchEventOutcome.PROCESSED
+                    )
+                )
+            }
+        )
+        val repository = RecordingRepository()
+
+        runBatchWorker(
+            batches = listOf(listOf(retried, processed)),
+            batchHandlers = mapOf(TestBatchEvent::class.java to listOf(allProcessed, partialRetry)),
+            repository = repository
+        )
+
+        assertEquals(listOf<Event>(processed), repository.processed.toList())
+        assertEquals(listOf<Event>(retried), repository.failed.toList())
+        assertTrue(repository.deadLettered.isEmpty())
+    }
+
     private fun batchHandlersOf(
         handler: BatchEventHandler<out Event>
     ): Map<Class<out Event>, List<BatchEventHandler<out Event>>> =

@@ -29,8 +29,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * Processing flow:
  * - consume a batch from the channel
  * - resolve batch handlers for the event type
- * - execute all handlers and merge their per-event outcomes
- * - validate that every batch event received exactly one outcome
+ * - execute the handlers one by one, validating each handler's outcome map against the
+ *   batch before merging it into the combined result
+ * - validate that every batch event received exactly one outcome in the combined result
  * - apply the outcomes: `PROCESSED` events are marked processed, `RETRY` events follow
  *   the standard failure lifecycle
  *
@@ -91,8 +92,13 @@ class BatchEventWorker(
         }
 
         val result: BatchResult = try {
-            val combined = handlers.fold(BatchResult.of(emptyMap())) { acc, handler ->
-                acc.mergedWith(invokeHandler(handler, batch))
+            var combined = BatchResult.of(emptyMap())
+            for (handler in handlers) {
+                val handlerResult = invokeHandler(handler, batch)
+                // Every handler must account for the whole batch on its own; otherwise a
+                // partial result could be masked by another handler's complete result.
+                validateResult(handlerResult, batch)
+                combined = combined.mergedWith(handlerResult)
             }
             validateResult(combined, batch)
             combined
