@@ -30,6 +30,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * - Any other exception → event is marked as FAILED (with retry handling)
  *
  * If retry limit is exceeded, repository may move event to DEAD_LETTER.
+ *
+ * Repository status-write failures are logged and contained so the worker keeps
+ * consuming subsequent events; success metrics and dead-letter callbacks are only
+ * reported when the corresponding status transition was persisted.
  */
 class EventWorker(
     private val handlers: Map<Class<out Event>, List<EventHandler<out Event>>>,
@@ -73,22 +77,24 @@ class EventWorker(
                     } catch (e: HandlerNotFoundException) {
                         log.error(e) { e.message }
 
-                        repository.markAsDeadLetter(event)
-                        metrics?.recordDeadLetter()
-
-                        handleDeadLetterSafely(event, handlers, e)
+                        if (markAsDeadLetter(event)) {
+                            metrics?.recordDeadLetter()
+                            handleDeadLetterSafely(event, handlers, e)
+                        }
 
                     } catch (e: Throwable) {
                         log.error(e) {
                             "Error while processing ${event.javaClass.simpleName}"
                         }
 
-                        val status = repository.markAsFailed(event)
-                        metrics?.recordFailed()
+                        val status = markAsFailed(event)
+                        if (status != null) {
+                            metrics?.recordFailed()
 
-                        if (status == EventStatus.DEAD_LETTER) {
-                            metrics?.recordDeadLetter()
-                            handleDeadLetterSafely(event, handlers, e)
+                            if (status == EventStatus.DEAD_LETTER) {
+                                metrics?.recordDeadLetter()
+                                handleDeadLetterSafely(event, handlers, e)
+                            }
                         }
                     }
                 }
@@ -107,6 +113,41 @@ class EventWorker(
                 "No handler registered for ${event.javaClass.simpleName}"
             )
     }
+
+    /**
+     * Moves the event to the dead-letter state, containing repository errors.
+     *
+     * @return `true` when the transition was persisted
+     */
+    private suspend fun markAsDeadLetter(event: Event): Boolean =
+        try {
+            repository.markAsDeadLetter(event)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            log.error(e) {
+                "Failed to move ${event.javaClass.simpleName} to dead letter"
+            }
+            false
+        }
+
+    /**
+     * Registers a processing failure for the event, containing repository errors.
+     *
+     * @return the recorded status, or `null` when the failure could not be persisted
+     */
+    private suspend fun markAsFailed(event: Event): EventStatus? =
+        try {
+            repository.markAsFailed(event)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            log.error(e) {
+                "Failed to record processing failure for ${event.javaClass.simpleName}"
+            }
+            null
+        }
 
     @Suppress("UNCHECKED_CAST")
     private suspend fun handleDeadLetterSafely(

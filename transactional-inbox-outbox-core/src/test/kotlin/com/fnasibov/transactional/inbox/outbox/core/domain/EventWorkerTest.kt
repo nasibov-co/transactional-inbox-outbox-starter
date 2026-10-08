@@ -112,6 +112,57 @@ class EventWorkerTest {
     }
 
     @Test
+    fun `failure recording errors are contained and later events still process`() {
+        val failing = TestEvent()
+        val succeeding = TestEvent()
+        val handler = TestEventHandler(
+            onHandle = { event ->
+                if (event === failing) throw IllegalStateException("publish failed")
+            }
+        )
+        val repository = RecordingRepository(
+            failedError = { event ->
+                if (event === failing) IllegalStateException("status update failed") else null
+            }
+        )
+        val registry = SimpleMeterRegistry()
+
+        runWorker(
+            events = listOf(failing, succeeding),
+            handlers = handlersOf(handler),
+            repository = repository,
+            metrics = EventProcessingMetrics(registry)
+        )
+
+        assertEquals(listOf<Event>(succeeding), repository.processed.toList())
+        assertTrue(repository.failed.isEmpty())
+        assertTrue(handler.deadLetterCalls.isEmpty())
+        assertEquals(1.0, registry.get("transactional.events.processed").counter().count())
+        assertEquals(0.0, registry.get("transactional.events.failed").counter().count())
+    }
+
+    @Test
+    fun `dead letter persistence errors are contained and later events still process`() {
+        val failing = TestEvent()
+        val succeeding = TestEvent()
+        val repository = RecordingRepository(
+            deadLetteredError = { event ->
+                if (event === failing) IllegalStateException("status update failed") else null
+            }
+        )
+
+        runWorker(
+            events = listOf(failing, succeeding),
+            handlers = emptyMap(),
+            repository = repository
+        )
+
+        assertEquals(listOf<Event>(succeeding), repository.deadLettered.toList())
+        assertTrue(repository.processed.isEmpty())
+        assertTrue(repository.failed.isEmpty())
+    }
+
+    @Test
     fun `failing dead letter callback does not stop the worker`() {
         val first = TestEvent()
         val second = TestEvent()
@@ -183,7 +234,9 @@ class EventWorkerTest {
     }
 
     private class RecordingRepository(
-        private val failureStatus: (Event) -> EventStatus = { EventStatus.FAILED }
+        private val failureStatus: (Event) -> EventStatus = { EventStatus.FAILED },
+        private val failedError: (Event) -> Throwable? = { null },
+        private val deadLetteredError: (Event) -> Throwable? = { null }
     ) : EventRepository {
 
         val processed = CopyOnWriteArrayList<Event>()
@@ -197,10 +250,12 @@ class EventWorkerTest {
         }
 
         override suspend fun <E : Event> markAsDeadLetter(event: E) {
+            deadLetteredError(event)?.let { throw it }
             deadLettered += event
         }
 
         override suspend fun <E : Event> markAsFailed(event: E): EventStatus {
+            failedError(event)?.let { throw it }
             failed += event
             return failureStatus(event)
         }
