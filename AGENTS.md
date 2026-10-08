@@ -28,6 +28,7 @@ via their module `docker-compose.yml` (see README "Demos").
 ## Build and test
 
 Use the Gradle wrapper from the repo root. On Windows: `.\gradlew.bat ...`; on macOS/Linux: `./gradlew ...`.
+The build requires a Java 21 toolchain. Ensure JDK 21 is available to Gradle before running verification.
 
 ```bash
 ./gradlew build                         # full build + all tests
@@ -64,9 +65,10 @@ Keep these two suites equivalent in intent.
 
 - `@BatchKey` marks exactly one persisted property. The default fetch path selects one key group per fetch, ordered
   by creation time, capped by `transactional.polling.batch-size`; a large group drains over several fetches.
-- `BatchEventHandler.handleBatch` receives the whole fetched batch and must return a `BatchResult` containing exactly
-  one outcome for every event id in the batch. Missing or extra ids reject the whole batch as failed; a thrown
-  exception retries every event in the batch.
+- `BatchEventHandler.handleBatch` receives the whole fetched batch. Each batch handler must independently return
+  exactly one outcome for every fetched event id, with no extra ids. Results are merged with `RETRY` taking
+  precedence over `PROCESSED`. An invalid result or a non-cancellation handler exception fails the whole batch
+  through the retry lifecycle; `CancellationException` is propagated.
 - `BatchEventOutcome.PROCESSED` records the event; `RETRY` routes it through the normal retry lifecycle (FAILED with
   backoff, then DEAD_LETTER when attempts are exhausted).
 - An event type must be registered with either `EventHandler` beans or `BatchEventHandler` beans, never both.
@@ -76,15 +78,12 @@ Keep these two suites equivalent in intent.
   than `transactional.polling.processing-stale-timeout`. A handler that runs longer than that timeout can have its
   batch treated as stale and reclaimed by another fetch. Keep this in mind when touching fetch/claim logic.
 
-## Known baseline issue
+## Auto-configuration registration
 
-`transactional-inbox-outbox-autoconfigure/src/test/.../TransactionalInboxOutboxAutoconfigurationTest.kt`
-("auto configuration imports define explicit loading order") currently fails on a clean base: it asserts the imports
-list omits `TransactionalInboxOutboxJdbcConversionsAutoConfiguration`, but
-`META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` includes it (and places it between
-the R2DBC and JDBC auto-configurations). Do not treat the test's expected list as a permanent invariant. Recheck
-whether this is still failing before attributing a test failure to your change; if you touch import order, update
-the test and the imports file together.
+When changing auto-configuration registration or ordering, update
+`META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` and the corresponding
+loading-order regression test
+(`transactional-inbox-outbox-autoconfigure/src/test/.../TransactionalInboxOutboxAutoconfigurationTest.kt`) together.
 
 ## Before finishing
 
