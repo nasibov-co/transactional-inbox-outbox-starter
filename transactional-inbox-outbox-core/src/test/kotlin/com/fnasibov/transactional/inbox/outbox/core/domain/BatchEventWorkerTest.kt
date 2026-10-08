@@ -43,6 +43,26 @@ class BatchEventWorkerTest {
     }
 
     @Test
+    fun `failed dead letter persistence does not increment the dead letter metric`() {
+        val failing = TestBatchEvent()
+        val succeeding = TestBatchEvent()
+        val registry = SimpleMeterRegistry()
+        val repository = RecordingRepository(
+            deadLetterError = { event -> if (event === failing) IllegalStateException("status update failed") else null }
+        )
+
+        runBatchWorker(
+            batches = listOf(listOf(failing), listOf(succeeding)),
+            batchHandlers = emptyMap(),
+            repository = repository,
+            metrics = EventProcessingMetrics(registry)
+        )
+
+        assertEquals(listOf<Event>(succeeding), repository.deadLettered.toList())
+        assertEquals(1.0, registry.get("transactional.events.dead_letter").counter().count())
+    }
+
+    @Test
     fun `processed marking failure routes the event through the failure lifecycle`() {
         val broken = TestBatchEvent()
         val ok = TestBatchEvent()
@@ -223,7 +243,8 @@ class BatchEventWorkerTest {
     private class RecordingRepository(
         private val failureStatus: (Event) -> EventStatus = { EventStatus.FAILED },
         private val processedError: (Event) -> Throwable? = { null },
-        private val failedError: (Event) -> Throwable? = { null }
+        private val failedError: (Event) -> Throwable? = { null },
+        private val deadLetterError: (Event) -> Throwable? = { null }
     ) : EventRepository {
 
         val processed = CopyOnWriteArrayList<Event>()
@@ -238,6 +259,7 @@ class BatchEventWorkerTest {
         }
 
         override suspend fun <E : Event> markAsDeadLetter(event: E) {
+            deadLetterError(event)?.let { throw it }
             deadLettered += event
         }
 

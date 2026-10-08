@@ -81,9 +81,9 @@ class BatchEventWorker(
             log.error(e) { e.message }
 
             batch.forEach { event ->
-                runCatching { repository.markAsDeadLetter(event) }
-                    .onFailure { logError(it, "Failed to move ${event.javaClass.simpleName} to dead letter") }
-                metrics?.recordDeadLetter()
+                if (markAsDeadLetter(event)) {
+                    metrics?.recordDeadLetter()
+                }
             }
 
             handleDeadLetterSafely(batch, emptyList(), e)
@@ -223,6 +223,22 @@ class BatchEventWorker(
             handleDeadLetterSafely(deadLettered, handlers, error)
         }
     }
+
+    /**
+     * Moves the event to the dead-letter state, containing repository errors.
+     *
+     * @return `true` when the transition was persisted
+     */
+    private suspend fun markAsDeadLetter(event: Event): Boolean =
+        try {
+            repository.markAsDeadLetter(event)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            logError(e, "Failed to move ${event.javaClass.simpleName} to dead letter")
+            false
+        }
 
     /**
      * Registers a processing failure for a single event.
